@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pepenet — screen handoff (pepe green)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  html{background:#0e0f0c}
+  body{margin:0;background:#0e0f0c;font-family:system-ui,sans-serif;color:#e9efd8;padding:40px 44px 64px}
+  header{max-width:920px;margin:0 auto 40px}
+  header h1{font:600 22px/1.2 system-ui,sans-serif;margin:0 0 8px}
+  header p{font:400 13px/1.5 system-ui,sans-serif;color:rgba(255,255,255,.55);margin:0;max-width:640px}
+  .screen{max-width:920px;margin:0 auto 48px}
+  .screen h2{display:flex;align-items:center;gap:10px;font:600 15px/1.2 system-ui,sans-serif;color:#e9efd8;margin:0 0 6px}
+  .screen p.desc{font:400 12.5px/1.5 system-ui,sans-serif;color:rgba(255,255,255,.55);margin:0 0 12px;max-width:760px}
+  .screen p.desc code{font:400 11.5px ui-monospace,Menlo,monospace;color:#9cb856}
+  .badge{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:#77c25b;color:#191a16;border-radius:5px}
+  .dv-card{max-width:100%;background:#191a16;border:1px solid rgba(255,255,255,.14);border-radius:10px;overflow:hidden;display:inline-block}
+  a{color:#77c25b}a:hover{color:#93d47c}
+</style>
+</head>
+<body>
+<header>
+  <h1>pepenet desktop client — screen handoff</h1>
+  <p>Visual system reference plus eight screens for the .pepe name manager: Discover, My Names, DNS, SSL (issued + empty), Add/Edit record modals, and first-run consent. Swamp-dark pepe palette (#191A16 surfaces, #77C25B accent green, #9CB856 olive status, #D97757 danger); Patrick Hand for UI voice, Space Mono for data. Screens drawn at 920×660. Static mockups — no interactivity wired. See README.md for implementation notes.</p>
+</header>
+
+<section class="screen">
+  <h2><span class="badge">1a</span>Visual system</h2>
+  <p class="desc">Visual system — palette, type, shapes on #191A16</p>
+  <div class="dv-card" style="width: 560px">
+<div style="padding: 28px 28px 32px; display: flex; flex-direction: column; gap: 26px; background: #191a16">
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="font: 700 11px 'Space Mono', monospace; letter-spacing: 2px; color: #9fa887">PALETTE · SWAMP DARK · FLAT ONLY</div>
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px">
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #191a16; border: 1px solid #363a2c"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#191A16<br>bg</div></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #21231b; border: 1px solid #363a2c"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#21231B<br>panel</div></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #292c21; border: 1px solid #363a2c"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#292C21<br>input/hover</div></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #363a2c"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#363A2C<br>border 1px</div></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #e9efd8"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#E9EFD8<br>text</div></div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px">
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #77c25b"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#77C25B<br>green·engrave</div></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #9cb856"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#9CB856<br>green·ok</div></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #d97757"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#D97757<br>red·danger</div></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #9fa887"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#9FA887<br>text dim</div></div>
+      <div style="display: flex; flex-direction: column; gap: 5px"><div style="height: 44px; border-radius: 6px; background: #515742"></div><div style="font: 400 10px 'Space Mono', monospace; color: #9fa887">#515742<br>text ghost</div></div>
+    </div>
+    <div style="font: 400 10.5px/1.5 'Space Mono', monospace; color: #686e58">green + olive + red share oklch lightness/chroma. Expiry fade = 4 text steps: #E9EFD8 → #9FA887 → #767d63 → #515742.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font: 700 11px 'Space Mono', monospace; letter-spacing: 2px; color: #9fa887">TYPE · PATRICK HAND (VOICE) / SPACE MONO (TRUTH)</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 30px; line-height: 1.15; color: #e9efd8">much permanence. very forever. — 30 titles</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 19px; line-height: 1.3; color: #e9efd8">body text, labels, buttons — 19 body</div>
+    <div style="font: 400 14px 'Space Mono', monospace; color: #e9efd8">Ᵽ 12.401&nbsp;&nbsp;PuCysJ…H1hFL&nbsp;&nbsp;fades in 42d — 14 mono</div>
+    <div style="font: 400 11px 'Space Mono', monospace; color: #9fa887">block 4,201,337 · rent 0.0311 Ᵽ/yr — 11 mono meta</div>
+    <div style="font: 400 10.5px/1.5 'Space Mono', monospace; color: #686e58">Rule: anything a user could lose money misreading — amounts, addresses, hashes, countdowns, byte counts — is ALWAYS Space Mono. Patrick Hand never touches a number that matters.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font: 700 11px 'Space Mono', monospace; letter-spacing: 2px; color: #9fa887">SHAPES · SPACING 4/8/12/16/24 · RADII 6/10</div>
+    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+      <div style="font-family: 'Patrick Hand'; font-size: 17px; color: #191a16; background: #77c25b; border-radius: 6px; padding: 7px 18px">engrave Ᵽ</div>
+      <div style="font-family: 'Patrick Hand'; font-size: 17px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 6px 18px">send</div>
+      <div style="font: 400 11px 'Space Mono', monospace; color: #9cb856; border: 1px solid #363a2c; border-radius: 999px; padding: 4px 12px; background: #21231b">⛓ 4,213,882 synced</div>
+      <div style="font: 700 10px 'Space Mono', monospace; color: #191a16; background: #9cb856; border-radius: 4px; padding: 3px 8px; letter-spacing: 1px">OWNED</div>
+      <div style="font: 700 10px 'Space Mono', monospace; color: #77c25b; border: 1px solid #77c25b; border-radius: 4px; padding: 2px 8px; letter-spacing: 1px">RESERVED</div>
+    </div>
+    <div style="font: 400 10.5px/1.5 'Space Mono', monospace; color: #686e58">Filled green = spends money. Bordered = safe. Hover: bg steps up one level (#21231B→#292C21→#313526). Pressed: border turns #77C25B. No shadows, no gradients — Nuklear-safe.</div>
+  </div>
+
+</div>
+</div>
+</section>
+
+<section class="screen">
+  <h2><span class="badge">9a</span>Discover</h2>
+  <p class="desc">Discover · generated identicon art (no site fetch) · description from owner TXT (2-line clamp) · name-only / lapsed / info-only states · health in the balance dropdown · degraded note in status bar</p>
+  <div class="dv-card" style="width: 920px">
+<div style="width: 920px; height: 660px; background: #191a16; display: flex; flex-direction: column; overflow: hidden; position: relative">
+
+  <div style="height: 38px; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #23261d; flex: none">
+    <div style="display: flex; gap: 8px"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></div></div>
+    <div style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 17px; color: #9fa887; margin-left: -56px">PepeNet</div>
+  </div>
+
+  <div style="display: flex; align-items: stretch; gap: 2px; padding: 0 12px; border-bottom: 1px solid #363a2c; flex: none; position: relative">
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #e9efd8; padding: 12px 16px; border-bottom: 2px solid #77c25b; margin-bottom: -1px">Discover</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">My Names</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Name Market</div>
+    <span style="flex: 1"></span>
+    <div style="display: flex; align-items: center; gap: 7px; align-self: center; border: 1px solid #77c25b; border-radius: 8px; padding: 4px 10px; background: #21231b">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      <span style="font: 400 12px 'Space Mono', monospace; color: #e9efd8">Ᵽ 12.401</span>
+      <span style="font: 400 10px 'Space Mono', monospace; color: #77c25b">▴</span>
+    </div>
+
+    <!-- balance dropdown open: sync + new web-health rows -->
+    <div style="position: absolute; right: 12px; top: 52px; width: 258px; background: #1d1f18; border: 1px solid #464a38; border-radius: 12px; box-shadow: 0 18px 44px rgba(0,0,0,.5); z-index: 5; overflow: hidden">
+      <div style="padding: 12px 14px; border-bottom: 1px solid #363a2c; display: flex; flex-direction: column; gap: 2px">
+        <span style="font: 400 10px 'Space Mono', monospace; color: #515742">balance</span>
+        <span style="font: 400 18px 'Space Mono', monospace; color: #e9efd8">Ᵽ 12.401</span>
+      </div>
+      <div style="display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #363a2c">
+        <span style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 14px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 7px; padding: 6px 0">Receive</span>
+        <span style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 14px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 7px; padding: 6px 0">Send</span>
+      </div>
+      <div style="padding: 10px 14px; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: center; gap: 8px"><span style="font: 400 10.5px 'Space Mono', monospace; color: #515742; flex: 1">sync</span><span style="font: 400 10.5px 'Space Mono', monospace; color: #9cb856">synced · 812,441</span></div>
+        <div style="display: flex; align-items: center; gap: 8px"><span style="font: 400 10.5px 'Space Mono', monospace; color: #515742; flex: 1">rent rate</span><span style="font: 400 10.5px 'Space Mono', monospace; color: #9fa887">0.0004 Ᵽ / day</span></div>
+        <div style="height: 1px; background: #363a2c; margin: 2px 0"></div>
+        <div style="display: flex; align-items: center; gap: 8px"><span style="font: 400 10.5px 'Space Mono', monospace; color: #515742; flex: 1">mesh peers</span><span style="font: 400 10.5px 'Space Mono', monospace; color: #9cb856">14 connected</span></div>
+        <div style="display: flex; align-items: center; gap: 8px"><span style="font: 400 10.5px 'Space Mono', monospace; color: #515742; flex: 1">resolver</span><span style="font: 400 10.5px 'Space Mono', monospace; color: #d97757">not responding</span></div>
+        <div style="display: flex; align-items: center; gap: 8px"><span style="font: 400 10.5px 'Space Mono', monospace; color: #515742; flex: 1">proxy</span><span style="font: 400 10.5px 'Space Mono', monospace; color: #9cb856">:4443 up</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; padding: 12px 16px; flex: none">
+    <div style="flex: 1; display: flex; align-items: center; gap: 8px; border: 1px solid #363a2c; border-radius: 8px; background: #292c21; padding: 8px 12px">
+      <span style="font: 400 13px 'Space Mono', monospace; color: #515742">⌕</span>
+      <span style="font: 400 13px 'Space Mono', monospace; color: #515742">search names &amp; descriptions…</span>
+    </div>
+  </div>
+
+  <div style="flex: 1; overflow: hidden; padding: 0 16px 8px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-content: start">
+
+    <!-- servable, with description -->
+    <div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="height: 92px; background: #191a16; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #363a2c; position: relative">
+        <div style="display: grid; grid-template-columns: repeat(3, 13px); grid-auto-rows: 13px; gap: 3px">
+          <span style="background: #77c25b; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span><span style="background: #77c25b; border-radius: 3px"></span>
+          <span style="background: #292c21; border-radius: 3px"></span><span style="background: #77c25b; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span>
+          <span style="background: #77c25b; border-radius: 3px"></span><span style="background: #77c25b; border-radius: 3px"></span><span style="background: #77c25b; border-radius: 3px"></span>
+        </div>
+        <span title="servable" style="position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      </div>
+      <div style="padding: 11px 13px; display: flex; flex-direction: column; gap: 7px">
+        <div style="display: flex; align-items: baseline"><span style="font: 400 14px 'Space Mono', monospace; color: #e9efd8">rare</span><span style="font: 400 14px 'Space Mono', monospace; color: #77c25b">.pepe</span></div>
+        <span style="font-family: 'Patrick Hand'; font-size: 14px; line-height: 1.25; color: #9fa887; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden">the original rare pepe gallery, fully on-chain — cards, provenance, and a live floor ticker</span>
+      </div>
+    </div>
+
+    <!-- servable, with description -->
+    <div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="height: 92px; background: #191a16; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #363a2c; position: relative">
+        <div style="display: grid; grid-template-columns: repeat(3, 13px); grid-auto-rows: 13px; gap: 3px">
+          <span style="background: #292c21; border-radius: 3px"></span><span style="background: #7fa9d6; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span>
+          <span style="background: #7fa9d6; border-radius: 3px"></span><span style="background: #7fa9d6; border-radius: 3px"></span><span style="background: #7fa9d6; border-radius: 3px"></span>
+          <span style="background: #292c21; border-radius: 3px"></span><span style="background: #7fa9d6; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span>
+        </div>
+        <span title="servable" style="position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      </div>
+      <div style="padding: 11px 13px; display: flex; flex-direction: column; gap: 7px">
+        <div style="display: flex; align-items: baseline"><span style="font: 400 14px 'Space Mono', monospace; color: #e9efd8">arcade</span><span style="font: 400 14px 'Space Mono', monospace; color: #77c25b">.pepe</span></div>
+        <span style="font-family: 'Patrick Hand'; font-size: 14px; line-height: 1.25; color: #9fa887; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden">onchain minigames, high scores engraved forever</span>
+      </div>
+    </div>
+
+    <!-- name-only: no description published -->
+    <div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="height: 92px; background: #191a16; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #363a2c; position: relative">
+        <div style="display: grid; grid-template-columns: repeat(3, 13px); grid-auto-rows: 13px; gap: 3px">
+          <span style="background: #9cb856; border-radius: 3px"></span><span style="background: #9cb856; border-radius: 3px"></span><span style="background: #9cb856; border-radius: 3px"></span>
+          <span style="background: #292c21; border-radius: 3px"></span><span style="background: #9cb856; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span>
+          <span style="background: #292c21; border-radius: 3px"></span><span style="background: #9cb856; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span>
+        </div>
+        <span title="servable" style="position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      </div>
+      <div style="padding: 11px 13px; display: flex; flex-direction: column; gap: 7px">
+        <div style="display: flex; align-items: baseline"><span style="font: 400 14px 'Space Mono', monospace; color: #e9efd8">gm</span><span style="font: 400 14px 'Space Mono', monospace; color: #77c25b">.pepe</span></div>
+        <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">no description published</span>
+      </div>
+    </div>
+
+    <!-- info-only: no A/TLSA, not servable -->
+    <div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="height: 92px; background: #191a16; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #363a2c; position: relative">
+        <div style="display: grid; grid-template-columns: repeat(3, 13px); grid-auto-rows: 13px; gap: 3px">
+          <span style="background: #c58f6a; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span><span style="background: #c58f6a; border-radius: 3px"></span>
+          <span style="background: #c58f6a; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span><span style="background: #c58f6a; border-radius: 3px"></span>
+          <span style="background: #292c21; border-radius: 3px"></span><span style="background: #c58f6a; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span>
+        </div>
+        <span style="position: absolute; top: 7px; right: 8px; font: 700 8px 'Space Mono', monospace; color: #515742; border: 1px solid #363a2c; border-radius: 4px; padding: 2px 6px; letter-spacing: 1px">INFO</span>
+      </div>
+      <div style="padding: 11px 13px; display: flex; flex-direction: column; gap: 7px">
+        <div style="display: flex; align-items: baseline"><span style="font: 400 14px 'Space Mono', monospace; color: #e9efd8">wiki</span><span style="font: 400 14px 'Space Mono', monospace; color: #77c25b">.pepe</span></div>
+        <span style="font-family: 'Patrick Hand'; font-size: 14px; line-height: 1.25; color: #9fa887; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden">registered, no site yet — no A / TLSA published</span>
+      </div>
+    </div>
+
+    <!-- servable, with description -->
+    <div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="height: 92px; background: #191a16; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #363a2c; position: relative">
+        <div style="display: grid; grid-template-columns: repeat(3, 13px); grid-auto-rows: 13px; gap: 3px">
+          <span style="background: #b98ad0; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span><span style="background: #b98ad0; border-radius: 3px"></span>
+          <span style="background: #292c21; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span>
+          <span style="background: #b98ad0; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span><span style="background: #b98ad0; border-radius: 3px"></span>
+        </div>
+        <span title="servable" style="position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      </div>
+      <div style="padding: 11px 13px; display: flex; flex-direction: column; gap: 7px">
+        <div style="display: flex; align-items: baseline"><span style="font: 400 14px 'Space Mono', monospace; color: #e9efd8">explorer</span><span style="font: 400 14px 'Space Mono', monospace; color: #77c25b">.pepe</span></div>
+        <span style="font-family: 'Patrick Hand'; font-size: 14px; line-height: 1.25; color: #9fa887; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden">block &amp; name explorer for the whole chain</span>
+      </div>
+    </div>
+
+    <!-- lapsed: greyed, lapsed tag -->
+    <div style="border: 1px solid #292c21; border-radius: 10px; background: #1e2019; overflow: hidden; display: flex; flex-direction: column; opacity: 0.55">
+      <div style="height: 92px; background: #191a16; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #292c21; position: relative; filter: grayscale(1)">
+        <div style="display: grid; grid-template-columns: repeat(3, 13px); grid-auto-rows: 13px; gap: 3px">
+          <span style="background: #515742; border-radius: 3px"></span><span style="background: #515742; border-radius: 3px"></span><span style="background: #515742; border-radius: 3px"></span>
+          <span style="background: #515742; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span><span style="background: #515742; border-radius: 3px"></span>
+          <span style="background: #292c21; border-radius: 3px"></span><span style="background: #515742; border-radius: 3px"></span><span style="background: #292c21; border-radius: 3px"></span>
+        </div>
+      </div>
+      <div style="padding: 11px 13px; display: flex; align-items: center; gap: 8px">
+        <div style="display: flex; align-items: baseline"><span style="font: 400 14px 'Space Mono', monospace; color: #9fa887">moon</span><span style="font: 400 14px 'Space Mono', monospace; color: #727a59">.pepe</span></div>
+        <span style="flex: 1"></span>
+        <span style="font: 700 8px 'Space Mono', monospace; color: #d97757; border: 1px solid #6b4a3e; border-radius: 4px; padding: 2px 7px; letter-spacing: 1px">LAPSED</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- directory footer line -->
+  <div style="flex: none; padding: 0 16px 8px"><span style="font: 400 10px 'Space Mono', monospace; color: #515742">12 sites · directory rebuilt in 38 ms</span></div>
+
+  <!-- STATUS BAR (degraded example) -->
+  <div style="height: 24px; flex: none; border-top: 1px solid #23261d; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #15170f">
+    <span style="width: 6px; height: 6px; border-radius: 50%; background: #d97757"></span>
+    <span style="font: 400 10px 'Space Mono', monospace; color: #d97757">web access degraded — resolver down</span>
+    <span style="flex: 1"></span>
+    <span style="width: 6px; height: 6px; border-radius: 50%; background: #9cb856"></span>
+    <span style="font: 400 10px 'Space Mono', monospace; color: #515742">synced · 812,441</span>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="screen">
+  <h2><span class="badge">9b</span>My Names</h2>
+  <p class="desc">My Names · DNS + SSL per row (approved) · a queued op temporarily changes the badge &amp; disables actions · sticky bar carries Renew / Transfer / Release via overflow · op readout in status bar</p>
+  <div class="dv-card" style="width: 920px">
+<div style="width: 920px; height: 660px; background: #191a16; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="height: 38px; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #23261d; flex: none">
+    <div style="display: flex; gap: 8px"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></div></div>
+    <div style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 17px; color: #9fa887; margin-left: -56px">PepeNet</div>
+  </div>
+
+  <div style="display: flex; align-items: stretch; gap: 2px; padding: 0 12px; border-bottom: 1px solid #363a2c; flex: none">
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Discover</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #e9efd8; padding: 12px 16px; border-bottom: 2px solid #77c25b; margin-bottom: -1px">My Names</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Name Market</div>
+    <span style="flex: 1"></span>
+    <div style="display: flex; align-items: center; gap: 7px; align-self: center; border: 1px solid #363a2c; border-radius: 8px; padding: 4px 10px; background: #21231b">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      <span style="font: 400 12px 'Space Mono', monospace; color: #e9efd8">Ᵽ 12.401</span>
+      <span style="font: 400 10px 'Space Mono', monospace; color: #515742">▾</span>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #23261d; flex: none">
+    <span style="font: 400 11px 'Space Mono', monospace; color: #515742">5 names · 4 live</span>
+    <span style="flex: 1"></span>
+    <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #363a2c; border-radius: 8px; background: #292c21; padding: 6px 12px">
+      <span style="font: 400 12px 'Space Mono', monospace; color: #515742">⌕</span>
+      <span style="font: 400 12px 'Space Mono', monospace; color: #515742">filter…</span>
+    </div>
+    <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #191a16; background: #77c25b; border-radius: 8px; padding: 6px 16px">+ register a name</span>
+  </div>
+
+  <div style="flex: 1; display: flex; flex-direction: column; padding: 8px 12px; gap: 4px; overflow: hidden">
+
+    <!-- shibs: QUEUED renew (pending op state) -->
+    <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 8px; background: #21231b; opacity: 0.75">
+      <span style="width: 18px; height: 18px; border-radius: 5px; border: 1px solid #363a2c; flex: none"></span>
+      <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+        <span style="font: 400 15px 'Space Mono', monospace; color: #e9efd8">shibs<span style="color: #77c25b">.pepe</span></span>
+        <span style="font: 400 10.5px 'Space Mono', monospace; color: #77c25b">renew queued · confirms next block</span>
+      </div>
+      <span style="flex: 1"></span>
+      <span style="font: 700 9px 'Space Mono', monospace; color: #191a16; background: #77c25b; border-radius: 4px; padding: 3px 8px; letter-spacing: 1px">QUEUED</span>
+      <span style="font: 400 11px 'Space Mono', monospace; color: #9fa887; width: 48px; text-align: right">273d</span>
+    </div>
+
+    <!-- gm: OWNED + expanded actions incl DNS / SSL -->
+    <div style="display: flex; flex-direction: column; border-radius: 8px; background: #21231b; border: 1px solid #363a2c">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px">
+        <span style="width: 18px; height: 18px; border-radius: 5px; background: #77c25b; color: #191a16; font: 700 12px 'Space Mono', monospace; display: flex; align-items: center; justify-content: center; flex: none">✓</span>
+        <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+          <span style="font: 400 15px 'Space Mono', monospace; color: #e9efd8">gm<span style="color: #77c25b">.pepe</span></span>
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #d97757">expires jul 15 — renew soon</span>
+        </div>
+        <span style="flex: 1"></span>
+        <span style="font: 700 9px 'Space Mono', monospace; color: #191a16; background: #9cb856; border-radius: 4px; padding: 3px 8px; letter-spacing: 1px">LIVE</span>
+        <span style="font: 400 11px 'Space Mono', monospace; color: #d97757; width: 48px; text-align: right">12d</span>
+      </div>
+      <div style="display: flex; gap: 6px; padding: 0 12px 11px 42px; flex-wrap: wrap">
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #191a16; background: #77c25b; border-radius: 6px; padding: 5px 14px">renew</span>
+        <a href="#9c" style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 4px 14px; text-decoration: none">DNS</a>
+        <a href="#9d" style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 4px 14px; text-decoration: none">SSL</a>
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 4px 14px">sell</span>
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 4px 14px">offer</span>
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 4px 14px">transfer</span>
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #d97757; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 4px 14px">release</span>
+      </div>
+    </div>
+
+    <!-- moon LISTED -->
+    <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 8px; background: #21231b">
+      <span style="width: 18px; height: 18px; border-radius: 5px; background: #77c25b; color: #191a16; font: 700 12px 'Space Mono', monospace; display: flex; align-items: center; justify-content: center; flex: none">✓</span>
+      <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+        <span style="font: 400 15px 'Space Mono', monospace; color: #e9efd8">moon<span style="color: #77c25b">.pepe</span></span>
+        <span style="font: 400 10.5px 'Space Mono', monospace; color: #9fa887">listed 120 Ᵽ · window 3d left</span>
+      </div>
+      <span style="flex: 1"></span>
+      <span style="font: 700 9px 'Space Mono', monospace; color: #191a16; background: #77c25b; border-radius: 4px; padding: 3px 8px; letter-spacing: 1px">LISTED</span>
+      <span style="font: 400 11px 'Space Mono', monospace; color: #9fa887; width: 48px; text-align: right">201d</span>
+    </div>
+
+    <!-- dex RESERVED -->
+    <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 8px; opacity: 0.5">
+      <span style="width: 18px; height: 18px; border-radius: 5px; border: 1px solid #363a2c; flex: none"></span>
+      <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+        <span style="font: 400 15px 'Space Mono', monospace; color: #e9efd8">dex<span style="color: #77c25b">.pepe</span></span>
+        <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">buyer reserved · can't renew now</span>
+      </div>
+      <span style="flex: 1"></span>
+      <span style="font: 700 9px 'Space Mono', monospace; color: #77c25b; border: 1px solid #77c25b; border-radius: 4px; padding: 2px 7px; letter-spacing: 1px">RESERVED</span>
+      <span style="font: 400 11px 'Space Mono', monospace; color: #9fa887; width: 48px; text-align: right">22h</span>
+    </div>
+
+    <!-- old OFFERED -->
+    <div style="display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 8px">
+      <span style="width: 18px; height: 18px; border-radius: 5px; background: #77c25b; color: #191a16; font: 700 12px 'Space Mono', monospace; display: flex; align-items: center; justify-content: center; flex: none">✓</span>
+      <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+        <span style="font: 400 15px 'Space Mono', monospace; color: #e9efd8">old<span style="color: #77c25b">.pepe</span></span>
+        <span style="font: 400 10.5px 'Space Mono', monospace; color: #9fa887">offered to Pk9wZa…4mQrT · 90 Ᵽ</span>
+      </div>
+      <span style="flex: 1"></span>
+      <span style="font: 700 9px 'Space Mono', monospace; color: #9cb856; border: 1px solid #9cb856; border-radius: 4px; padding: 2px 7px; letter-spacing: 1px">OFFERED</span>
+      <span style="font: 400 11px 'Space Mono', monospace; color: #9fa887; width: 48px; text-align: right">3d</span>
+    </div>
+
+    <div style="flex: 1"></div>
+  </div>
+
+  <!-- sticky selection bar w/ overflow menu open -->
+  <div style="flex: none; border-top: 1px solid #363a2c; background: #21231b; padding: 12px 16px; display: flex; align-items: center; gap: 12px; position: relative">
+    <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #e9efd8">3 selected</span>
+    <span style="font-family: 'Patrick Hand'; font-size: 14px; color: #515742">clear</span>
+    <span style="flex: 1"></span>
+    <span style="font: 400 11px 'Space Mono', monospace; color: #9fa887">~0.0588 Ᵽ</span>
+    <div style="position: relative">
+      <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 7px; padding: 7px 14px">···</span>
+      <!-- overflow menu -->
+      <div style="position: absolute; right: 0; bottom: 44px; width: 150px; background: #1d1f18; border: 1px solid #464a38; border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.5); overflow: hidden">
+        <div style="padding: 10px 14px; font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8; border-bottom: 1px solid #363a2c">Transfer 3</div>
+        <div style="padding: 10px 14px; font-family: 'Patrick Hand'; font-size: 15px; color: #d97757">Release 3</div>
+      </div>
+    </div>
+    <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #191a16; background: #77c25b; border-radius: 7px; padding: 7px 20px">Renew 3</span>
+  </div>
+
+  <!-- STATUS BAR (op readout) -->
+  <div style="height: 24px; flex: none; border-top: 1px solid #23261d; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #15170f">
+    <span style="width: 6px; height: 6px; border-radius: 50%; background: #77c25b"></span>
+    <span style="font: 400 10px 'Space Mono', monospace; color: #9fa887">renewing shibs.pepe · 1 op queued</span>
+    <span style="flex: 1"></span>
+    <span style="width: 6px; height: 6px; border-radius: 50%; background: #9cb856"></span>
+    <span style="font: 400 10px 'Space Mono', monospace; color: #515742">synced · 812,441</span>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="screen">
+  <h2><span class="badge">9c</span>DNS</h2>
+  <p class="desc">DNS (per-name) · edit = overwrite (delete lives in the edit modal) · <code>_443._tcp TLSA</code> row greyed / system-managed · TXT <code>_site</code> holds the Discover description · status in footer</p>
+  <div class="dv-card" style="width: 920px">
+<div style="width: 920px; height: 660px; background: #191a16; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="height: 38px; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #23261d; flex: none">
+    <div style="display: flex; gap: 8px"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></div></div>
+    <div style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 17px; color: #9fa887; margin-left: -56px">PepeNet</div>
+  </div>
+
+  <div style="display: flex; align-items: stretch; gap: 2px; padding: 0 12px; border-bottom: 1px solid #363a2c; flex: none">
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Discover</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #e9efd8; padding: 12px 16px; border-bottom: 2px solid #77c25b; margin-bottom: -1px">My Names</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Name Market</div>
+    <span style="flex: 1"></span>
+    <div style="display: flex; align-items: center; gap: 7px; align-self: center; border: 1px solid #363a2c; border-radius: 8px; padding: 4px 10px; background: #21231b">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      <span style="font: 400 12px 'Space Mono', monospace; color: #e9efd8">Ᵽ 12.401</span>
+      <span style="font: 400 10px 'Space Mono', monospace; color: #515742">▾</span>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid #23261d; flex: none">
+    <a href="#9b" style="font: 400 18px 'Space Mono', monospace; color: #515742; text-decoration: none">‹</a>
+    <span style="font-family: 'Patrick Hand'; font-size: 21px; color: #e9efd8">gm<span style="font: 400 16px 'Space Mono', monospace; color: #77c25b">.pepe</span></span>
+    <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #515742">· DNS</span>
+    <span style="flex: 1"></span>
+    <a href="#9d" style="font-family: 'Patrick Hand'; font-size: 14px; color: #9fa887; text-decoration: none">SSL ›</a>
+  </div>
+
+  <div style="flex: 1; overflow: hidden; padding: 16px; display: flex; flex-direction: column; gap: 16px">
+    <div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid #363a2c">
+        <span style="font-family: 'Patrick Hand'; font-size: 17px; color: #e9efd8">DNS records</span>
+        <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">5 records</span>
+        <span style="flex: 1"></span>
+        <a href="#9f" style="font-family: 'Patrick Hand'; font-size: 15px; color: #191a16; background: #77c25b; border-radius: 6px; padding: 5px 14px; text-decoration: none">+ add record</a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 7px 14px; border-bottom: 1px solid #23261d">
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px; width: 72px">TYPE</span>
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px; width: 90px">HOST</span>
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px; flex: 1">VALUE</span>
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px; width: 50px; text-align: right">TTL</span>
+        <span style="width: 40px"></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #23261d">
+        <span style="width: 72px"><span style="font: 700 10px 'Space Mono', monospace; color: #9cb856; border: 1px solid #363a2c; border-radius: 4px; padding: 2px 7px">A</span></span>
+        <span style="width: 90px; font: 400 12px 'Space Mono', monospace; color: #e9efd8">@</span>
+        <span style="flex: 1; font: 400 12px 'Space Mono', monospace; color: #9fa887">104.21.9.44</span>
+        <span style="width: 50px; text-align: right; font: 400 11px 'Space Mono', monospace; color: #515742">3600</span>
+        <span style="width: 40px; text-align: right"><a href="#9g" style="font-family: 'Patrick Hand'; font-size: 13px; color: #9fa887; text-decoration: none">edit</a></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #23261d">
+        <span style="width: 72px"><span style="font: 700 10px 'Space Mono', monospace; color: #9cb856; border: 1px solid #363a2c; border-radius: 4px; padding: 2px 7px">CNAME</span></span>
+        <span style="width: 90px; font: 400 12px 'Space Mono', monospace; color: #e9efd8">www</span>
+        <span style="flex: 1; font: 400 12px 'Space Mono', monospace; color: #9fa887">gm.pepe</span>
+        <span style="width: 50px; text-align: right; font: 400 11px 'Space Mono', monospace; color: #515742">3600</span>
+        <span style="width: 40px; text-align: right"><a href="#9g" style="font-family: 'Patrick Hand'; font-size: 13px; color: #9fa887; text-decoration: none">edit</a></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #23261d">
+        <span style="width: 72px"><span style="font: 700 10px 'Space Mono', monospace; color: #9cb856; border: 1px solid #363a2c; border-radius: 4px; padding: 2px 7px">TXT</span></span>
+        <span style="width: 90px; font: 400 12px 'Space Mono', monospace; color: #e9efd8">_site</span>
+        <span style="flex: 1; font: 400 12px 'Space Mono', monospace; color: #9fa887; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">"daily gm board — one post per wallet"</span>
+        <span style="width: 50px; text-align: right; font: 400 11px 'Space Mono', monospace; color: #515742">3600</span>
+        <span style="width: 40px; text-align: right"><a href="#9g" style="font-family: 'Patrick Hand'; font-size: 13px; color: #9fa887; text-decoration: none">edit</a></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #23261d">
+        <span style="width: 72px"><span style="font: 700 10px 'Space Mono', monospace; color: #9cb856; border: 1px solid #363a2c; border-radius: 4px; padding: 2px 7px">A</span></span>
+        <span style="width: 90px; font: 400 12px 'Space Mono', monospace; color: #e9efd8">api</span>
+        <span style="flex: 1; font: 400 12px 'Space Mono', monospace; color: #9fa887">104.21.9.51</span>
+        <span style="width: 50px; text-align: right; font: 400 11px 'Space Mono', monospace; color: #515742">300</span>
+        <span style="width: 40px; text-align: right"><a href="#9g" style="font-family: 'Patrick Hand'; font-size: 13px; color: #9fa887; text-decoration: none">edit</a></span>
+      </div>
+      <!-- system-managed TLSA row: greyed, not editable -->
+      <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #1c1e17; opacity: 0.7">
+        <span style="width: 72px"><span style="font: 700 10px 'Space Mono', monospace; color: #727a59; border: 1px solid #363a2c; border-radius: 4px; padding: 2px 7px">TLSA</span></span>
+        <span style="width: 90px; font: 400 12px 'Space Mono', monospace; color: #9fa887">_443._tcp</span>
+        <span style="flex: 1; font: 400 12px 'Space Mono', monospace; color: #727a59; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">3 1 1 9f2c11a47be0…</span>
+        <span style="width: 50px; text-align: right; font: 400 11px 'Space Mono', monospace; color: #515742">3600</span>
+        <span style="width: 40px; text-align: right"><span style="font: 400 12px 'Space Mono', monospace; color: #515742">🔒</span></span>
+      </div>
+      <div style="padding: 8px 14px; background: #1c1e17"><span style="font: 400 10px 'Space Mono', monospace; color: #515742">🔒 managed on the SSL page</span></div>
+    </div>
+  </div>
+
+  <!-- STATUS BAR (healthy) -->
+  <div style="height: 24px; flex: none; border-top: 1px solid #23261d; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #15170f">
+    <span style="font: 400 10px 'Space Mono', monospace; color: #515742">idle</span>
+    <span style="flex: 1"></span>
+    <span style="width: 6px; height: 6px; border-radius: 50%; background: #9cb856"></span>
+    <span style="font: 400 10px 'Space Mono', monospace; color: #515742">synced · 812,441</span>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="screen">
+  <h2><span class="badge">9d</span>SSL — issued + pinned</h2>
+  <p class="desc">SSL (per-name) · a certificate LIST, not one cert · default apex entry (gm.pepe + *.gm.pepe) + per-subdomain entries · each entry has its own pin strip (3 states), KEY PIN (TLSA 3 1 1) &amp; Export bundle · self-signed · DANE · Create free &amp; auto-publishes the pin</p>
+  <div class="dv-card" style="width: 920px">
+<div style="width: 920px; height: 660px; background: #191a16; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="height: 38px; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #23261d; flex: none">
+    <div style="display: flex; gap: 8px"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></div></div>
+    <div style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 17px; color: #9fa887; margin-left: -56px">PepeNet</div>
+  </div>
+
+  <div style="display: flex; align-items: stretch; gap: 2px; padding: 0 12px; border-bottom: 1px solid #363a2c; flex: none">
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Discover</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #e9efd8; padding: 12px 16px; border-bottom: 2px solid #77c25b; margin-bottom: -1px">My Names</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Name Market</div>
+    <span style="flex: 1"></span>
+    <div style="display: flex; align-items: center; gap: 7px; align-self: center; border: 1px solid #363a2c; border-radius: 8px; padding: 4px 10px; background: #21231b">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      <span style="font: 400 12px 'Space Mono', monospace; color: #e9efd8">Ᵽ 12.401</span>
+      <span style="font: 400 10px 'Space Mono', monospace; color: #515742">▾</span>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid #23261d; flex: none">
+    <a href="#9b" style="font: 400 18px 'Space Mono', monospace; color: #515742; text-decoration: none">‹</a>
+    <span style="font-family: 'Patrick Hand'; font-size: 21px; color: #e9efd8">gm<span style="font: 400 16px 'Space Mono', monospace; color: #77c25b">.pepe</span></span>
+    <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #515742">· SSL</span>
+    <span style="flex: 1"></span>
+    <a href="#9c" style="font-family: 'Patrick Hand'; font-size: 14px; color: #9fa887; text-decoration: none">DNS ›</a>
+  </div>
+
+  <div style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+
+    <div style="display: flex; align-items: center; gap: 10px">
+      <span style="font-family: 'Patrick Hand'; font-size: 17px; color: #e9efd8">Certificates</span>
+      <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">2 · self-signed, pinned by DANE</span>
+    </div>
+
+    <!-- ENTRY 1: apex certificate (pinned / green) -->
+    <div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #363a2c">
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; flex: 1">
+          <span style="font: 400 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 999px; padding: 3px 11px">gm.pepe</span>
+          <span style="font: 400 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 999px; padding: 3px 11px">*.gm.pepe</span>
+          <span style="font: 700 8px 'Space Mono', monospace; color: #515742; letter-spacing: 1px; align-self: center">DEFAULT · COVERS ALL</span>
+        </div>
+        <span style="font-family: 'Patrick Hand'; font-size: 13px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 5px 12px">Export bundle</span>
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #9fa887; padding: 0 4px">···</span>
+      </div>
+      <div style="padding: 13px 14px; display: flex; flex-direction: column; gap: 11px">
+        <!-- pin strip: green -->
+        <div style="display: flex; align-items: center; gap: 10px; border: 1px solid #4a5c39; border-radius: 9px; background: rgba(156,184,86,.10); padding: 9px 12px">
+          <span style="font: 700 13px 'Space Mono', monospace; color: #9cb856">✓</span>
+          <span style="font-family: 'Patrick Hand'; font-size: 14px; color: #cdd7ad">pinned on-chain — the TLSA matches this key</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px; width: 130px">KEY PIN (TLSA 3 1 1)</span>
+          <span style="flex: 1; font: 400 11px 'Space Mono', monospace; color: #9cb856; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">9f2c11a47be03d88c5416afe29b70cd382145eaa609d37f14c2b88e07a11d953</span>
+          <span style="font-family: 'Patrick Hand'; font-size: 13px; color: #9fa887">⧉ copy</span>
+        </div>
+        <div style="display: flex; gap: 18px; border-top: 1px solid #23261d; padding-top: 10px">
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">self-signed · DANE</span>
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">ECDSA P-256</span>
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">created apr 8, 2026</span>
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">valid ~10 years</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ENTRY 2: subdomain certificate (own key, not pinned yet / green) -->
+    <div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #363a2c">
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; flex: 1; align-items: center">
+          <span style="font: 400 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 999px; padding: 3px 11px">shop.gm.pepe</span>
+          <span style="font: 700 8px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">SUBDOMAIN · SEPARATE KEY</span>
+        </div>
+        <span style="font-family: 'Patrick Hand'; font-size: 13px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 5px 12px">Export bundle</span>
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #9fa887; padding: 0 4px">···</span>
+      </div>
+      <div style="padding: 13px 14px; display: flex; flex-direction: column; gap: 11px">
+        <!-- pin strip: accent green + publish -->
+        <div style="display: flex; align-items: center; gap: 10px; border: 1px solid #4d6b39; border-radius: 9px; background: rgba(119,194,91,.09); padding: 9px 12px">
+          <span style="font: 700 13px 'Space Mono', monospace; color: #77c25b">!</span>
+          <span style="font-family: 'Patrick Hand'; font-size: 14px; color: #b2dda1; flex: 1">not pinned yet — shop.gm.pepe won't validate until you publish</span>
+          <span style="font: 700 9px 'Space Mono', monospace; color: #191a16; background: #77c25b; border-radius: 6px; padding: 5px 12px">publish pin</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px; width: 130px">KEY PIN (TLSA 3 1 1)</span>
+          <span style="flex: 1; font: 400 11px 'Space Mono', monospace; color: #9fa887; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">4b18e7c0a2f95d6613be74089a2c5eaa71d3826f145e0c3d889f2c11a47be03d</span>
+          <span style="font-family: 'Patrick Hand'; font-size: 13px; color: #9fa887">⧉ copy</span>
+        </div>
+        <div style="display: flex; gap: 18px; border-top: 1px solid #23261d; padding-top: 10px">
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">self-signed · DANE</span>
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">ECDSA P-256</span>
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">created jul 9, 2026</span>
+          <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742">valid ~10 years</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- add-subdomain action -->
+    <div style="display: flex; align-items: center; gap: 14px; border: 1px dashed #464a38; border-radius: 10px; background: #1e2019; padding: 13px 16px">
+      <div style="display: flex; flex-direction: column; gap: 3px; flex: 1">
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8">+ certificate for a subdomain</span>
+        <span style="font: 400 10.5px 'Space Mono', monospace; color: #515742; line-height: 1.4">a separate key for a sub hosted elsewhere — contains the blast radius if that host is compromised</span>
+      </div>
+      <span style="font-family: 'Patrick Hand'; font-size: 14px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 7px; padding: 6px 18px; white-space: nowrap">add</span>
+    </div>
+
+    <!-- pin status legend -->
+    <div style="display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 2px 2px 0">
+      <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">PIN STATUS</span>
+      <span style="display: flex; align-items: center; gap: 6px"><span style="font: 700 11px 'Space Mono', monospace; color: #9cb856">✓</span><span style="font-family: 'Patrick Hand'; font-size: 13px; color: #797f63">pinned</span></span>
+      <span style="display: flex; align-items: center; gap: 6px"><span style="font: 700 11px 'Space Mono', monospace; color: #77c25b">!</span><span style="font-family: 'Patrick Hand'; font-size: 13px; color: #797f63">not pinned yet</span></span>
+      <span style="display: flex; align-items: center; gap: 6px"><span style="font: 700 11px 'Space Mono', monospace; color: #d97757">✕</span><span style="font-family: 'Patrick Hand'; font-size: 13px; color: #797f63">key mismatch — republish</span></span>
+    </div>
+
+  </div>
+
+  <!-- STATUS BAR (healthy) -->
+  <div style="height: 24px; flex: none; border-top: 1px solid #23261d; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #15170f">
+    <span style="font: 400 10px 'Space Mono', monospace; color: #515742">idle</span>
+    <span style="flex: 1"></span>
+    <span style="width: 6px; height: 6px; border-radius: 50%; background: #9cb856"></span>
+    <span style="font: 400 10px 'Space Mono', monospace; color: #515742">synced · 812,441</span>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="screen">
+  <h2><span class="badge">9e</span>SSL — empty state</h2>
+  <p class="desc">SSL · empty state (no cert yet) · Create panel is the page focus · Active panel shows a dashed placeholder</p>
+  <div class="dv-card" style="width: 920px">
+<div style="width: 920px; height: 660px; background: #191a16; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="height: 38px; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #23261d; flex: none">
+    <div style="display: flex; gap: 8px"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></div></div>
+    <div style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 17px; color: #9fa887; margin-left: -56px">PepeNet</div>
+  </div>
+
+  <div style="display: flex; align-items: stretch; gap: 2px; padding: 0 12px; border-bottom: 1px solid #363a2c; flex: none">
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Discover</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #e9efd8; padding: 12px 16px; border-bottom: 2px solid #77c25b; margin-bottom: -1px">My Names</div>
+    <div style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887; padding: 12px 16px; border-bottom: 2px solid transparent">Name Market</div>
+    <span style="flex: 1"></span>
+    <div style="display: flex; align-items: center; gap: 7px; align-self: center; border: 1px solid #363a2c; border-radius: 8px; padding: 4px 10px; background: #21231b">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #9cb856"></span>
+      <span style="font: 400 12px 'Space Mono', monospace; color: #e9efd8">Ᵽ 12.401</span>
+      <span style="font: 400 10px 'Space Mono', monospace; color: #515742">▾</span>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid #23261d; flex: none">
+    <a href="#9b" style="font: 400 18px 'Space Mono', monospace; color: #515742; text-decoration: none">‹</a>
+    <span style="font-family: 'Patrick Hand'; font-size: 21px; color: #e9efd8">shop<span style="font: 400 16px 'Space Mono', monospace; color: #77c25b">.pepe</span></span>
+    <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #515742">· SSL</span>
+    <span style="flex: 1"></span>
+    <span style="font: 700 9px 'Space Mono', monospace; color: #9fa887; border: 1px solid #515742; border-radius: 4px; padding: 2px 8px; letter-spacing: 1px">NOT SERVABLE</span>
+  </div>
+
+  <div style="flex: 1; overflow: hidden; padding: 16px; display: flex; gap: 16px">
+
+    <!-- LEFT: dashed empty placeholder -->
+    <div style="flex: 1.35; border: 1px dashed #363a2c; border-radius: 10px; background: #1e2019; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 24px">
+      <div style="width: 46px; height: 46px; border-radius: 11px; border: 1px dashed #464a38; display: flex; align-items: center; justify-content: center; font: 400 20px 'Space Mono', monospace; color: #515742">🔒</div>
+      <span style="font-family: 'Patrick Hand'; font-size: 18px; color: #9fa887">no certificate yet</span>
+      <span style="font-family: 'Patrick Hand'; font-size: 14px; line-height: 1.4; color: #515742; max-width: 260px">create one to make shop.pepe servable over https — pinned to your name, no CA</span>
+    </div>
+
+    <!-- RIGHT: create (focused) -->
+    <div style="flex: 1; border: 1px solid #77c25b; border-radius: 10px; background: #21231b; overflow: hidden; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid #363a2c">
+        <span style="font-family: 'Patrick Hand'; font-size: 17px; color: #e9efd8">Create certificate</span>
+      </div>
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+        <div style="font-family: 'Patrick Hand'; font-size: 14px; line-height: 1.4; color: #9fa887">generate a P-256 key and self-signed cert. it covers the apex and every subdomain.</div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">COVERS</span>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap">
+            <span style="font: 400 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 999px; padding: 4px 12px">shop.pepe</span>
+            <span style="font: 400 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 999px; padding: 4px 12px">*.shop.pepe</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #4a5c39; border-radius: 8px; background: rgba(156,184,86,.08); padding: 10px 12px">
+          <span style="font: 400 11px 'Space Mono', monospace; color: #9cb856">↑</span>
+          <span style="font-family: 'Patrick Hand'; font-size: 13.5px; line-height: 1.35; color: #9fa887">final step publishes the TLSA pin on-chain — this is what makes the padlock trustless.</span>
+        </div>
+        <span style="flex: 1"></span>
+        <div style="display: flex; align-items: center; gap: 8px">
+          
+          <span style="flex: 1"></span>
+          <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #191a16; background: #9cb856; border-radius: 8px; padding: 7px 22px">Create</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="height: 24px; flex: none; border-top: 1px solid #23261d; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #15170f">
+    <span style="font: 400 10px 'Space Mono', monospace; color: #515742">idle</span>
+    <span style="flex: 1"></span>
+    <span style="width: 6px; height: 6px; border-radius: 50%; background: #9cb856"></span>
+    <span style="font: 400 10px 'Space Mono', monospace; color: #515742">synced · 812,441</span>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="screen">
+  <h2><span class="badge">9f</span>Add record modal</h2>
+  <p class="desc">Add record · live PREVIEW dry-run · inline VALUE validation error · passive over-80-byte hint · SRV tucked under “more…”</p>
+  <div class="dv-card" style="width: 920px">
+<div style="width: 920px; height: 660px; background: #191a16; display: flex; flex-direction: column; overflow: hidden; position: relative">
+
+  <div style="position: absolute; inset: 0; display: flex; flex-direction: column; filter: brightness(0.5)">
+    <div style="height: 38px; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #23261d; flex: none">
+      <div style="display: flex; gap: 8px"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></div></div>
+      <div style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 17px; color: #9fa887; margin-left: -56px">PepeNet</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid #23261d; flex: none">
+      <span style="font: 400 18px 'Space Mono', monospace; color: #515742">‹</span>
+      <span style="font-family: 'Patrick Hand'; font-size: 21px; color: #e9efd8">gm<span style="font: 400 16px 'Space Mono', monospace; color: #77c25b">.pepe</span></span>
+      <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #515742">· DNS</span>
+    </div>
+    <div style="flex: 1; padding: 16px"><div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; height: 100%"></div></div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: rgba(14,15,12,0.55)"></div>
+
+  <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 520px; background: #1d1f18; border: 1px solid #464a38; border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,0.55); overflow: hidden; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid #363a2c">
+      <span style="font-family: 'Patrick Hand'; font-size: 19px; color: #e9efd8">Add DNS record</span>
+      <span style="font: 400 11px 'Space Mono', monospace; color: #515742">gm.pepe</span>
+      <span style="flex: 1"></span>
+      <span style="font: 400 17px 'Space Mono', monospace; color: #515742">✕</span>
+    </div>
+
+    <div style="padding: 18px; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 7px">
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">TYPE</span>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center">
+          <span style="font: 700 11px 'Space Mono', monospace; color: #191a16; background: #77c25b; border-radius: 6px; padding: 6px 14px">A</span>
+          <span style="font: 700 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 6px 14px">AAAA</span>
+          <span style="font: 700 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 6px 14px">CNAME</span>
+          <span style="font: 700 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 6px 14px">TXT</span>
+          <span style="font: 700 11px 'Space Mono', monospace; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 6px; padding: 6px 14px">MX</span>
+          <span style="font: 400 11px 'Space Mono', monospace; color: #9fa887; background: #292c21; border: 1px dashed #464a38; border-radius: 6px; padding: 6px 12px">more…</span>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 7px">
+          <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">HOST</span>
+          <div style="display: flex; align-items: center; border: 1px solid #363a2c; border-radius: 8px; background: #292c21; padding: 9px 12px"><span style="font: 400 13px 'Space Mono', monospace; color: #e9efd8">shop</span></div>
+        </div>
+        <div style="width: 130px; display: flex; flex-direction: column; gap: 7px">
+          <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">TTL</span>
+          <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #363a2c; border-radius: 8px; background: #292c21; padding: 9px 12px"><span style="flex: 1; font: 400 13px 'Space Mono', monospace; color: #e9efd8">3600</span><span style="font: 400 10px 'Space Mono', monospace; color: #515742">▾</span></div>
+        </div>
+      </div>
+
+      <!-- VALUE with inline error -->
+      <div style="display: flex; flex-direction: column; gap: 7px">
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">VALUE</span>
+        <div style="display: flex; align-items: center; border: 1px solid #d97757; border-radius: 8px; background: #292c21; padding: 9px 12px">
+          <span style="flex: 1; font: 400 13px 'Space Mono', monospace; color: #e9efd8">104.21.9.999</span>
+          <span style="font: 400 13px 'Space Mono', monospace; color: #d97757">✕</span>
+        </div>
+        <span style="font: 400 10.5px 'Space Mono', monospace; color: #d97757">not a valid IPv4 address — each octet is 0–255</span>
+      </div>
+
+      <!-- PREVIEW + oversize hint -->
+      <div style="display: flex; flex-direction: column; gap: 7px">
+        <div style="border: 1px solid #363a2c; border-radius: 8px; background: #191a16; padding: 11px 13px; display: flex; align-items: center; gap: 12px">
+          <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">PREVIEW</span>
+          <span style="font: 400 12px 'Space Mono', monospace; color: #727a59">shop.gm.pepe</span>
+          <span style="font: 400 12px 'Space Mono', monospace; color: #515742">A</span>
+          <span style="font: 400 12px 'Space Mono', monospace; color: #727a59">→ —</span>
+        </div>
+        <span style="font: 400 10px 'Space Mono', monospace; color: #515742">record is 96 bytes · over 80 gossips fine, only the on-chain fallback is skipped</span>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-top: 1px solid #363a2c; background: #21231b">
+      <span style="flex: 1"></span>
+      <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 8px; padding: 7px 18px">Cancel</span>
+      <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #727a59; background: #292c21; border: 1px solid #363a2c; border-radius: 8px; padding: 7px 20px">Add record</span>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="screen">
+  <h2><span class="badge">9g</span>Edit record modal</h2>
+  <p class="desc">Edit record · same modal, pre-filled · edit = overwrite (latest wins) · delete = publish empty record, destructive action bottom-left</p>
+  <div class="dv-card" style="width: 920px">
+<div style="width: 920px; height: 660px; background: #191a16; display: flex; flex-direction: column; overflow: hidden; position: relative">
+
+  <div style="position: absolute; inset: 0; display: flex; flex-direction: column; filter: brightness(0.5)">
+    <div style="height: 38px; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #23261d; flex: none">
+      <div style="display: flex; gap: 8px"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></div></div>
+      <div style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 17px; color: #9fa887; margin-left: -56px">PepeNet</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid #23261d; flex: none">
+      <span style="font: 400 18px 'Space Mono', monospace; color: #515742">‹</span>
+      <span style="font-family: 'Patrick Hand'; font-size: 21px; color: #e9efd8">gm<span style="font: 400 16px 'Space Mono', monospace; color: #77c25b">.pepe</span></span>
+      <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #515742">· DNS</span>
+    </div>
+    <div style="flex: 1; padding: 16px"><div style="border: 1px solid #363a2c; border-radius: 10px; background: #21231b; height: 100%"></div></div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: rgba(14,15,12,0.55)"></div>
+
+  <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 520px; background: #1d1f18; border: 1px solid #464a38; border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,0.55); overflow: hidden; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid #363a2c">
+      <span style="font-family: 'Patrick Hand'; font-size: 19px; color: #e9efd8">Edit record</span>
+      <span style="font: 400 11px 'Space Mono', monospace; color: #515742">gm.pepe</span>
+      <span style="flex: 1"></span>
+      <span style="font: 400 17px 'Space Mono', monospace; color: #515742">✕</span>
+    </div>
+
+    <div style="padding: 18px; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 7px">
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">TYPE</span>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center">
+          <span style="font: 700 11px 'Space Mono', monospace; color: #191a16; background: #77c25b; border-radius: 6px; padding: 6px 14px">A</span>
+          <span style="font: 700 11px 'Space Mono', monospace; color: #515742; background: #21231b; border: 1px solid #292c21; border-radius: 6px; padding: 6px 14px">AAAA</span>
+          <span style="font: 700 11px 'Space Mono', monospace; color: #515742; background: #21231b; border: 1px solid #292c21; border-radius: 6px; padding: 6px 14px">CNAME</span>
+          <span style="font: 700 11px 'Space Mono', monospace; color: #515742; background: #21231b; border: 1px solid #292c21; border-radius: 6px; padding: 6px 14px">TXT</span>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 7px">
+          <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">HOST</span>
+          <div style="display: flex; align-items: center; border: 1px solid #363a2c; border-radius: 8px; background: #292c21; padding: 9px 12px"><span style="font: 400 13px 'Space Mono', monospace; color: #e9efd8">api</span></div>
+        </div>
+        <div style="width: 130px; display: flex; flex-direction: column; gap: 7px">
+          <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">TTL</span>
+          <div style="display: flex; align-items: center; gap: 8px; border: 1px solid #363a2c; border-radius: 8px; background: #292c21; padding: 9px 12px"><span style="flex: 1; font: 400 13px 'Space Mono', monospace; color: #e9efd8">300</span><span style="font: 400 10px 'Space Mono', monospace; color: #515742">▾</span></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 7px">
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">VALUE</span>
+        <div style="display: flex; align-items: center; border: 1px solid #464a38; border-radius: 8px; background: #292c21; padding: 9px 12px"><span style="flex: 1; font: 400 13px 'Space Mono', monospace; color: #e9efd8">104.21.9.51</span><span style="width: 1px; height: 15px; background: #515742"></span></div>
+      </div>
+
+      <div style="border: 1px solid #363a2c; border-radius: 8px; background: #191a16; padding: 11px 13px; display: flex; align-items: center; gap: 12px">
+        <span style="font: 700 9px 'Space Mono', monospace; color: #515742; letter-spacing: 1px">PREVIEW</span>
+        <span style="font: 400 12px 'Space Mono', monospace; color: #9cb856">api.gm.pepe</span>
+        <span style="font: 400 12px 'Space Mono', monospace; color: #515742">A</span>
+        <span style="font: 400 12px 'Space Mono', monospace; color: #9fa887">→ 104.21.9.51</span>
+        <span style="flex: 1"></span>
+        <span style="font: 400 10px 'Space Mono', monospace; color: #515742">overwrites current</span>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-top: 1px solid #363a2c; background: #21231b">
+      <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #d97757; background: rgba(217,119,87,.10); border: 1px solid #6b4a3e; border-radius: 8px; padding: 7px 16px">Delete</span>
+      <span style="flex: 1"></span>
+      <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #e9efd8; background: #292c21; border: 1px solid #363a2c; border-radius: 8px; padding: 7px 18px">Cancel</span>
+      <span style="font-family: 'Patrick Hand'; font-size: 16px; color: #191a16; background: #77c25b; border-radius: 8px; padding: 7px 20px">Save</span>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="screen">
+  <h2><span class="badge">9h</span>First-run consent</h2>
+  <p class="desc">First-run consent · one admin prompt · scope promise (.pepe ONLY) · what it installs (root · resolver · port redirect) · “skip for now” path</p>
+  <div class="dv-card" style="width: 920px">
+<div style="width: 920px; height: 660px; background: #191a16; display: flex; flex-direction: column; overflow: hidden; position: relative">
+
+  <div style="position: absolute; inset: 0; display: flex; flex-direction: column; filter: brightness(0.42)">
+    <div style="height: 38px; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #23261d; flex: none">
+      <div style="display: flex; gap: 8px"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></div><div style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></div></div>
+      <div style="flex: 1; text-align: center; font-family: 'Patrick Hand'; font-size: 17px; color: #9fa887; margin-left: -56px">PepeNet</div>
+    </div>
+    <div style="flex: 1"></div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: rgba(14,15,12,0.6)"></div>
+
+  <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 480px; background: #1d1f18; border: 1px solid #464a38; border-radius: 16px; box-shadow: 0 26px 64px rgba(0,0,0,0.6); overflow: hidden; display: flex; flex-direction: column">
+
+    <div style="padding: 26px 26px 6px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start">
+      
+      <span style="font-family: 'Patrick Hand'; font-size: 25px; color: #e9efd8">Access the PepeNet?</span>
+      
+    </div>
+
+    <!-- scope promise -->
+    <div style="margin: 14px 26px 4px; display: flex; gap: 10px; align-items: flex-start; border: 1px solid #4a5c39; border-radius: 10px; background: rgba(156,184,86,.09); padding: 12px 14px">
+      <span style="font: 700 13px &quot;Space Mono&quot;, monospace; color: rgb(156, 184, 86);">✓</span>
+      <span style="font-family: &quot;Patrick Hand&quot;; font-size: 14px; line-height: 1.4; color: rgb(205, 215, 173);">Enabling PepeNet allows you to visit .pepe websites. To do so, we:</span></div>
+
+    <div style="padding: 16px 26px 4px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; gap: 11px; align-items: flex-start">
+        <span style="font: 400 13px 'Space Mono', monospace; color: #77c25b; margin-top: 1px">01</span>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8">Install .pepe Certificate</span><span style="font: 400 11px 'Space Mono', monospace; color: #515742">a local trustless certificate authority for .pepe</span></div>
+      </div>
+      <div style="display: flex; gap: 11px; align-items: flex-start">
+        <span style="font: 400 13px 'Space Mono', monospace; color: #77c25b; margin-top: 1px">02</span>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8">Run DNS Mesh</span><span style="font: 400 11px 'Space Mono', monospace; color: #515742">answers .pepe lookups</span></div>
+      </div>
+      <div style="display: flex; gap: 11px; align-items: flex-start">
+        <span style="font: 400 13px 'Space Mono', monospace; color: #77c25b; margin-top: 1px">03</span>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'Patrick Hand'; font-size: 15px; color: #e9efd8">Run Local Proxy</span><span style="font: 400 11px 'Space Mono', monospace; color: #515742">enable secure https for .pepe sites</span></div>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 18px 26px 22px">
+      <div style="display: flex; flex-direction: column; gap: 1px">
+        <span style="font-family: 'Patrick Hand'; font-size: 15px; color: #9fa887">Skip for now</span>
+        <span style="font: 400 10px 'Space Mono', monospace; color: #515742">wallet &amp; names work without it</span>
+      </div>
+      <span style="flex: 1"></span>
+      <span style="font-family: 'Patrick Hand'; font-size: 17px; color: #191a16; background: #77c25b; border-radius: 9px; padding: 9px 22px">Enable web access</span>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+</body>
+</html>

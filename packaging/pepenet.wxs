@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- pepenet.wxs — the Windows installer (WiX 3.x; package.sh's MSI twin).
+     Per-user by design: installs under %LOCALAPPDATA%\Programs\PepeNet with
+     no admin prompt (the app itself asks for elevation only for the one
+     NRPT step of "Install web access"). Per-user MSI components take HKCU
+     registry key paths — that is the MSI rule for profile-relative files,
+     not app config (the app's real config lives under Software\PepeNet).
+
+     Build: packaging\package-win.ps1  (candle -dBuildDir=… -dVersion=…) -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="PepeNet"
+           Language="1033"
+           Version="$(var.Version)"
+           Manufacturer="PepeNet"
+           UpgradeCode="7E9E4E7B-52F5-4E7C-9E56-1D06E62D1A9C">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser"
+             Description="PepeNet - the decentralized-web client" />
+    <!-- AllowSameVersionUpgrades: rebuilds keep Version 0.1.0, and MSI ignores
+         same-version products by default — each rebuilt MSI would install as a
+         second product instead of replacing the old one. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of PepeNet is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="PepenetIco" SourceFile="$(var.SrcDir)\packaging\pepenet.ico" />
+    <Property Id="ARPPRODUCTICON" Value="PepenetIco" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsFolder" Name="Programs">
+          <Directory Id="INSTALLDIR" Name="PepeNet">
+            <Directory Id="ResourcesDir" Name="resources" />
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="MainExe" Guid="A3B1F0D2-8C44-4B5E-9A17-3C60A4E51F02">
+        <RegistryValue Root="HKCU" Key="Software\PepeNet\Install"
+                       Name="exe" Type="string" Value="[INSTALLDIR]pepenet.exe"
+                       KeyPath="yes" />
+        <File Id="PepenetExe" Source="$(var.BuildDir)\pepenet.exe" />
+        <RemoveFolder Id="RmInstallDir" On="uninstall" />
+        <RemoveFolder Id="RmProgramsDir" Directory="ProgramsFolder" On="uninstall" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="ResourcesDir">
+      <Component Id="Resources" Guid="5D2A9C6E-11B7-4F83-B2D4-7A5E90C3F614">
+        <RegistryValue Root="HKCU" Key="Software\PepeNet\Install"
+                       Name="resources" Type="string" Value="[ResourcesDir]"
+                       KeyPath="yes" />
+        <File Id="FontHand"  Source="$(var.BuildDir)\resources\PatrickHand-Regular.ttf" />
+        <File Id="FontMonoR" Source="$(var.BuildDir)\resources\SpaceMono-Regular.ttf" />
+        <File Id="FontMonoB" Source="$(var.BuildDir)\resources\SpaceMono-Bold.ttf" />
+        <File Id="FontEmoji" Source="$(var.BuildDir)\resources\NotoEmoji-Regular.ttf" />
+        <File Id="Helper"    Source="$(var.BuildDir)\resources\install-helper.ps1" />
+        <RemoveFolder Id="RmResourcesDir" On="uninstall" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="0F7C3A98-6E2D-4D51-8B0A-92C4D7E6B3A1">
+        <Shortcut Id="PepenetShortcut" Name="PepeNet"
+                  Description="The decentralized-web client"
+                  Target="[INSTALLDIR]pepenet.exe"
+                  WorkingDirectory="INSTALLDIR"
+                  Icon="PepenetIco" />
+        <RegistryValue Root="HKCU" Key="Software\PepeNet\Install"
+                       Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Level="1">
+      <ComponentRef Id="MainExe" />
+      <ComponentRef Id="Resources" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- Launch the app once the install/upgrade finishes. Type-210 action
+         (runs an installed File by key) so no WiX extension is needed. Immediate
+         + asyncNoWait = fire-and-forget in the user's context: msiexec returns
+         without waiting and never fails the install if the launch does. Gated on
+         a real install (NOT Installed) and never on uninstall/repair-remove, so
+         the removal half of a same-version major upgrade does not relaunch. -->
+    <CustomAction Id="LaunchApp" FileKey="PepenetExe" ExeCommand=""
+                  Execute="immediate" Return="asyncNoWait" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchApp" After="InstallFinalize">
+        <![CDATA[NOT Installed AND NOT REMOVE]]>
+      </Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

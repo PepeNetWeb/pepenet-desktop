@@ -1,0 +1,28 @@
+{
+  "coin": {
+    "name": "Pepecoin",
+    "symbol": "PEP",
+    "glyph": "Ᵽ",
+    "colors": {
+      "primary": "#6FBE54",
+      "primary_border": "#529C3C",
+      "on_primary": "#0E2207"
+    },
+    "network": {
+      "magic": "C0A0F0E0",
+      "port": 33874,
+      "protocol_version": 70015,
+      "p2pkh_version": 56,
+      "p2sh_version": 22,
+      "start_height": 1000000,
+      "start_hash": "73c1ff0a3694ce48803913f6653f147dbd8f69739e3e58b17cd4c60412aa686a",
+      "seed_ips": [],
+      "dns_seeds": ["seeds.pepecoin.org", "seeds.pepeblocks.com"],
+      "db_file": "pep.db"
+    }
+  },
+  "font": {
+    "post": 20, "ui": 19, "balance": 24, "compose": 19, "appbar": 19,
+    "meta": 18, "subtext": 18, "menu": 19, "menu_sub": 18, "message": 19
+  }
+}

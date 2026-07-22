@@ -1,0 +1,30 @@
+// pepenet.rc — Windows resources: the app icon (icon id 1 — tray_win.c loads
+// MAKEINTRESOURCE(1)) and the version block the MSI/Explorer read.
+#include <winver.h>
+
+1 ICON "pepenet.ico"
+
+1 VERSIONINFO
+FILEVERSION     0,1,0,0
+PRODUCTVERSION  0,1,0,0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "PepeNet"
+            VALUE "FileDescription",  "PepeNet - the decentralized-web client"
+            VALUE "FileVersion",      "0.1.0"
+            VALUE "InternalName",     "pepenet"
+            VALUE "OriginalFilename", "pepenet.exe"
+            VALUE "ProductName",      "PepeNet"
+            VALUE "ProductVersion",   "0.1.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

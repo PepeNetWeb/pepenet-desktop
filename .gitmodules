@@ -1,0 +1,18 @@
+[submodule "vendor/sokol"]
+	path = vendor/sokol
+	url = https://github.com/floooh/sokol
+[submodule "vendor/nuklear"]
+	path = vendor/nuklear
+	url = https://github.com/Immediate-Mode-UI/Nuklear
+[submodule "indexer"]
+	path = indexer
+	url = https://github.com/PepeNetWeb/namespace-indexer.git
+[submodule "dns"]
+	path = dns
+	url = https://github.com/PepeNetWeb/pepenet-dns.git
+[submodule "tls"]
+	path = tls
+	url = https://github.com/PepeNetWeb/pepenet-tls.git
+[submodule "mesh"]
+	path = mesh
+	url = https://github.com/PepeNetWeb/pepenet-mesh.git

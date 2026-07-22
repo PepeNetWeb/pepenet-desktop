@@ -1,0 +1,5 @@
+build/
+build.stale/
+dist/
+vendor/openssl-universal/
+.DS_Store

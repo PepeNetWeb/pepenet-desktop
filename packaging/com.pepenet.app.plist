@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The launch-at-login agent, registered through SMAppService (sysinstall.c →
+     platform_loginitem_set). Living INSIDE the bundle (Contents/Library/
+     LaunchAgents) is what makes the Login Items UI and the "runs in the
+     background" notification say the app's name — a hand-written plist in
+     ~/Library/LaunchAgents gets attributed to the signing identity's legal
+     name instead. BundleProgram is bundle-relative; the background flag in
+     ProgramArguments starts it hidden (tray only). -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.pepenet.app</string>
+  <key>BundleProgram</key><string>Contents/MacOS/pepenet</string>
+  <key>ProgramArguments</key><array>
+    <string>Contents/MacOS/pepenet</string>
+    <string>--background</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>AssociatedBundleIdentifiers</key><string>com.pepenet.app</string>
+</dict></plist>
