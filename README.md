@@ -1,6 +1,7 @@
 # pepenet-desktop — "PepeNet"
 
-<img width="705" height="522" alt="image" src="https://github.com/user-attachments/assets/3114ff0c-f7ec-4e81-b293-cdeb4b735468" />
+<img width="768" height="948" alt="image" src="https://github.com/user-attachments/assets/f48e71e5-01fe-4c16-83b4-c19b4d6e1fa4" />
+
 
 The decentralized-web desktop client for the PepeNet namespace, single-coin
 (Pepecoin / `.pep`): wallet + Send/Receive + My Names + Name Market from
