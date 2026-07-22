@@ -1,18 +1,18 @@
 # pepenet-desktop — "PepeNet"
 
+<img width="705" height="522" alt="image" src="https://github.com/user-attachments/assets/3114ff0c-f7ec-4e81-b293-cdeb4b735468" />
+
 The decentralized-web desktop client for the PepeNet namespace, single-coin
 (Pepecoin / `.pep`): wallet + Send/Receive + My Names + Name Market from
 pepenet-desktop's UI, plus the dns/tls stack embedded in-process — a DNS
 resolver over the chain-owned namespace, a DANE-enforcing local TLS proxy,
 a zone editor with one-click origin-certificate creation, and **Discover**,
-the enumerable directory of every `.pep` website (the chain IS the registry).
+the enumerable directory of every `.pepe` website (the chain IS the registry).
 
 Navigation: the four sections — Discover (home) · My Names · Name Market ·
 DNS & Web — are tabs on a persistent strip; the balance chip at its right end
 drops down the wallet verbs + Settings (Send · Receive · Settings).
 
-No social plane — this app is the money + names + web client: wallet,
-namespace, marketplace, and the decentralized-web stack (DNS + TLS + mesh).
 
 ## Build
 
