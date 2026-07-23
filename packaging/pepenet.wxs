@@ -16,7 +16,7 @@
            UpgradeCode="7E9E4E7B-52F5-4E7C-9E56-1D06E62D1A9C">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser"
              Description="PepeNet - the decentralized-web client" />
-    <!-- AllowSameVersionUpgrades: rebuilds keep Version 0.1.0, and MSI ignores
+    <!-- AllowSameVersionUpgrades: rebuilds keep the same Version, and MSI ignores
          same-version products by default — each rebuilt MSI would install as a
          second product instead of replacing the old one. -->
     <MajorUpgrade AllowSameVersionUpgrades="yes"
