@@ -6,7 +6,7 @@
 #   cmake + ninja + gcc   (MSYS2 UCRT64: C:\...\msys64\ucrt64\bin)
 #   candle.exe/light.exe  (WiX 3.x binaries)
 param(
-    [string]$Version = "0.1.1",
+    [string]$Version = "0.1.2",
     [string]$WixDir = "",           # dir holding candle.exe/light.exe
     [string]$ToolchainBin = ""      # MSYS2 ucrt64\bin to prepend to PATH
 )

@@ -15,7 +15,7 @@ BUILD="$ROOT/build"
 DIST="$ROOT/dist"
 APP_NAME="pepenet-desktop"   # CMake target
 BUNDLE="pepenet"             # OUTPUT_NAME → pepenet.app (CMakeLists)
-VERSION="0.1.1"
+VERSION="0.1.2"
 CODESIGN_ID="${CODESIGN_ID:-}"
 
 echo "==> Configuring (Release)"

@@ -322,8 +322,8 @@ else()
         MACOSX_BUNDLE_BUNDLE_NAME "PepeNet"
         MACOSX_BUNDLE_ICON_FILE "pepenet.icns"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.pepenet.app"
-        MACOSX_BUNDLE_BUNDLE_VERSION "0.1.1"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.1"
+        MACOSX_BUNDLE_BUNDLE_VERSION "0.1.2"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.2"
     )
     target_link_libraries(pepenet-desktop PRIVATE
         "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
