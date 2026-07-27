@@ -293,6 +293,7 @@ typedef struct { Utxo u[64]; int n; int64_t total; } UtxoSet;
 static void utxo_cb(void *p, const uint8_t txid[32], uint32_t vout, int64_t value, int64_t height) {
     (void)height;
     UtxoSet *s = (UtxoSet *)p;
+    if (value < 0 || s->total > INT64_MAX - value) return;   /* never wrap the balance */
     if (s->n < 64) { memcpy(s->u[s->n].txid, txid, 32); s->u[s->n].vout = vout; s->u[s->n].value = value; s->n++; }
     s->total += value;
 }
@@ -308,7 +309,11 @@ static int load_utxos(const char *dbpath, const uint8_t h160[20], UtxoSet *s) {
 static int parse_amt(const char *s, int64_t *out) {
     int64_t whole = 0, frac = 0; int fd = 0; const char *p = s;
     if (!*p) return 0;
-    for (; *p && *p != '.'; p++) { if (*p < '0' || *p > '9') return 0; whole = whole * 10 + (*p - '0'); if (whole > 100000000000LL) return 0; }
+    /* The bound must be INT64_MAX / COIN_UNIT, not a round-looking constant:
+     * the old 100000000000 admitted values that then wrapped in the multiply
+     * below, so parse_amt("100000000000") returned success with a NEGATIVE
+     * amount. */
+    for (; *p && *p != '.'; p++) { if (*p < '0' || *p > '9') return 0; whole = whole * 10 + (*p - '0'); if (whole > INT64_MAX / COIN_UNIT) return 0; }
     if (*p == '.') { p++; for (; *p; p++) { if (*p < '0' || *p > '9' || fd >= 8) return 0; frac = frac * 10 + (*p - '0'); fd++; } }
     while (fd++ < 8) frac *= 10;
     *out = whole * COIN_UNIT + frac;
@@ -331,13 +336,49 @@ static size_t or_script(uint8_t *out, const uint8_t *body, size_t blen) {
     size_t n = 0;
     out[n++] = 0x6A;
     if (blen <= 75) out[n++] = (uint8_t)blen;
-    else { out[n++] = 0x4C; out[n++] = (uint8_t)blen; }
+    else if (blen <= 255) { out[n++] = 0x4C; out[n++] = (uint8_t)blen; }
+    else { out[n++] = 0x4D; out[n++] = (uint8_t)(blen & 0xFF); out[n++] = (uint8_t)(blen >> 8); }
     memcpy(out + n, body, blen); n += blen;
     return n;
 }
 
+// ── relay data-carrier policy (--datacarriersize, default 83 script bytes) ────
+// datacarriersize caps the WHOLE OP_RETURN scriptPubKey a node will RELAY:
+// OP_RETURN(1) + push overhead + payload. Push overhead is length-dependent
+// (direct ≤75 = 1 B · OP_PUSHDATA1 ≤255 = 2 B · OP_PUSHDATA2 = 3 B), so the
+// payload budget is a small branch, not datacarriersize−3. Consensus accepts
+// up to SM_CARRIER_MAX once mined (§6); this policy only bounds what WE BUILD,
+// so every tx we broadcast is forwardable by default-config peers.
+static int g_dcs = 83;
+void swl_set_datacarriersize(int s) {
+    if (s < 7) s = 7;                        // smallest useful carrier script
+    if (s > SM_L1_SCRIPT_MAX) s = SM_L1_SCRIPT_MAX;
+    g_dcs = s;
+}
+int swl_datacarriersize(void) { return g_dcs; }
+int swl_payload_max(void) {
+    int D = g_dcs, best = 0;
+    int b1 = D - 2; if (b1 > 75) b1 = 75;                          // direct push
+    int b2 = D - 3; if (b2 > 255) b2 = 255;                        // OP_PUSHDATA1
+    int b3 = D - 4; if (b3 > SM_CARRIER_MAX) b3 = SM_CARRIER_MAX;  // OP_PUSHDATA2
+    if (b1 > best) best = b1;
+    if (b2 >= 76 && b2 > best) best = b2;
+    if (b3 >= 256 && b3 > best) best = b3;
+    return best;
+}
+int swl_flags_budget_renew(void) {
+    int b = swl_payload_max() - 9;           // envelope(4) + anchor(5)
+    if (b > SM_FLAGS_MAX) b = SM_FLAGS_MAX;  // consensus ceiling (§6)
+    return b > 0 ? b : 0;
+}
+int swl_flags_budget_xfer(void) {
+    int b = swl_payload_max() - 29;          // envelope(4) + target(20) + anchor(5)
+    if (b > SM_FLAGS_XFER_MAX) b = SM_FLAGS_XFER_MAX;
+    return b > 0 ? b : 0;
+}
+
 // Generic outputs: value + raw scriptPubKey (P2PKH or OP_RETURN carrier).
-typedef struct { int64_t value; uint8_t spk[96]; size_t spklen; } WOut;
+typedef struct { int64_t value; uint8_t spk[4 + SM_CARRIER_MAX]; size_t spklen; } WOut;
 static void wout_p2pkh(WOut *o, const uint8_t h160[20], int64_t value) {
     o->value = value; o->spklen = 25;
     o->spk[0] = 0x76; o->spk[1] = 0xA9; o->spk[2] = 0x14; memcpy(o->spk + 3, h160, 20);
@@ -403,7 +444,13 @@ static size_t build_signed_tx(const Wallet *w, const Utxo *ins, int nin,
 // if the balance can't cover it. *in_sum = selected total.
 static int select_coins(const UtxoSet *s, int64_t need, int64_t *in_sum) {
     int nin = 0; *in_sum = 0;
-    for (int i = 0; i < s->n && nin < MAX_INS && *in_sum < need; i++) { *in_sum += s->u[i].value; nin++; }
+    for (int i = 0; i < s->n && nin < MAX_INS && *in_sum < need; i++) {
+        /* Guard the accumulator. The values come from the projection db, so a
+         * corrupt or hostile row set could otherwise wrap the running total
+         * negative — signed overflow is UB, and this is money arithmetic. */
+        if (s->u[i].value < 0 || *in_sum > INT64_MAX - s->u[i].value) return 0;
+        *in_sum += s->u[i].value; nin++;
+    }
     return (*in_sum >= need) ? nin : 0;
 }
 
@@ -925,17 +972,56 @@ static int swl_tail(const Wallet *w, const SwlReq *req, SwlRes *res,
     // it, and the sweep proves "confirmed as built" by that outpoint alone; a
     // changeless link would let a benign chain reach the malleation forensics,
     // where a value collision could replay a folded op. No fallback.
-    int64_t pad = req->want_change ? DUST : 0;
-    int nin = select_coins(&s, out_total + fee + pad, &in_sum);
+    /* sweep: spend every input and leave NO change (wallet.h's contract). It
+     * overrides want_change, since a swept wallet has nothing left to chain
+     * from. Implemented here rather than left to the caller: the send screen
+     * only happened to sweep by arithmetic accident (amount = balance − fee),
+     * so any other caller setting sweep=1 silently got an ordinary change-
+     * emitting spend. */
+    int64_t pad = (req->want_change && !req->sweep) ? DUST : 0;
+    int nin;
+    if (req->sweep) {
+        nin = 0; in_sum = 0;
+        for (int i = 0; i < s.n && nin < MAX_INS; i++) {
+            if (s.u[i].value < 0 || in_sum > INT64_MAX - s.u[i].value) break;
+            in_sum += s.u[i].value; nin++;
+        }
+        if (in_sum < out_total + fee) nin = 0;    /* → the insufficient path below */
+    } else {
+        nin = select_coins(&s, out_total + fee + pad, &in_sum);
+    }
     if (!nin) {
+        /* Report the REACHABLE balance, not the whole one. Selection stops at
+         * MAX_INS inputs, so with many small outputs the wallet can hold far
+         * more than one transaction can spend. Quoting the full balance
+         * produced a refusal that contradicted itself — "need 18.1, have 20.0"
+         * — with no hint that the input cap, not the funds, was the limit. */
+        int64_t reach = 0;
+        int cap_bound = 0;
+        for (int i = 0; i < s.n && i < MAX_INS; i++) {
+            if (s.u[i].value > 0 && reach <= INT64_MAX - s.u[i].value) reach += s.u[i].value;
+        }
+        if (s.n > MAX_INS && reach < s.total) cap_bound = 1;
+
         char need[32], have[32];
         swl_amt(need, sizeof need, out_total + fee + pad);
-        swl_amt(have, sizeof have, s.total);
+        swl_amt(have, sizeof have, reach);
+        if (cap_bound) {
+            char total[32];
+            swl_amt(total, sizeof total, s.total);
+            return swl_fail(res,
+                "insufficient spendable balance — need %s%s, have %s reachable "
+                "(one tx spends at most %d inputs; your full balance is %s — "
+                "consolidate first)",
+                need, pad ? " (incl. the 0.01 change buffer)" : "",
+                have, MAX_INS, total);
+        }
         return swl_fail(res, "insufficient spendable balance — need %s%s, have %s",
                         need, pad ? " (incl. the 0.01 change buffer)" : "", have);
     }
     int64_t change = in_sum - out_total - fee;
-    if (change > 0 && change < DUST) { fee += change; change = 0; }   // sub-dust → fee
+    if (req->sweep) { fee += change; change = 0; }                    // swept: no change at all
+    else if (change > 0 && change < DUST) { fee += change; change = 0; }   // sub-dust → fee
     if (change > 0) {
         res->has_change   = 1;
         res->change_vout  = (uint32_t)nout;
@@ -993,7 +1079,7 @@ static int swl_do_commit(const Wallet *w, const SwlReq *req, SwlRes *res) {
     uint8_t salt[32];
     if (getentropy(salt, 32) != 0)
         return swl_fail(res, "getentropy failed");
-    uint8_t pre[32 + 20 + 20];
+    uint8_t pre[32 + SM_NAME_MAX + 20];
     size_t pn = 0;
     memcpy(pre + pn, salt, 32); pn += 32;
     memcpy(pre + pn, req->name, nlen); pn += nlen;
@@ -1030,7 +1116,7 @@ static int swl_do_commit(const Wallet *w, const SwlReq *req, SwlRes *res) {
 // plain OWNED; renew tops up movement-locked ones too. max_flags is the op's
 // flag budget in BYTES (71 for renew/release; 51 for transfer — the 20-byte
 // target eats flag space).
-typedef struct { const SwlReq *req; int idx[16]; int found, count; } MultiFind;
+typedef struct { const SwlReq *req; int idx[PEP_NAMES_MAX]; int found, count; } MultiFind;
 static void multifind_cb(void *u, const char *nm, int64_t lease, int st) {
     (void)lease; (void)st;
     MultiFind *m = (MultiFind *)u;
@@ -1039,10 +1125,10 @@ static void multifind_cb(void *u, const char *nm, int64_t lease, int st) {
     m->count++;
 }
 static int bits_and_anchor(const Wallet *w, const SwlReq *req, SwlRes *res,
-                           int need_unlocked, int max_flags, uint8_t flags[71],
+                           int need_unlocked, int max_flags, uint8_t *flags,
                            int *nflags, int64_t *anchor_out) {
-    if (req->nnames < 1 || req->nnames > 16)
-        return swl_fail(res, "1..16 names per batch");
+    if (req->nnames < 1 || req->nnames > PEP_NAMES_MAX)
+        return swl_fail(res, "1..%d names per batch", PEP_NAMES_MAX);
     for (int i = 0; i < req->nnames; i++) {
         IdxNameRow r;
         if (!load_name_row(req->dbpath, req->names[i], &r))
@@ -1057,7 +1143,7 @@ static int bits_and_anchor(const Wallet *w, const SwlReq *req, SwlRes *res,
     char hh[41];
     tohex(w->h160, 20, hh);
     MultiFind mf = { req, {0}, 0, 0 };
-    for (int i = 0; i < 16; i++) mf.idx[i] = -1;
+    for (int i = 0; i < PEP_NAMES_MAX; i++) mf.idx[i] = -1;
     idx_db_owned(db, hh, multifind_cb, &mf);
     int64_t tip = 0;
     uint8_t tiph[32];
@@ -1071,7 +1157,7 @@ static int bits_and_anchor(const Wallet *w, const SwlReq *req, SwlRes *res,
     idx_db_close(db);
     if (mf.found != req->nnames || !have_tip)
         return swl_fail(res, "cannot build the name bitmap — sync first");
-    memset(flags, 0, 71);
+    memset(flags, 0, (size_t)max_flags);
     int maxbit = 0;
     for (int i = 0; i < req->nnames; i++) {
         if (mf.idx[i] >= max_flags * 8)
@@ -1091,6 +1177,21 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
     WOut outs[4];
     size_t nlen = strlen(req->name);
 
+    /* One length gate for every name-carrying op, ahead of the switch.
+     *
+     * The per-op carrier buffers below are sized `4 + SM_NAME_MAX` and friends,
+     * and several ops (RESERVE / SETTLE / PAY) reach their memcpy without ever
+     * calling sm_name_valid — their names arrive from the projection rather than
+     * from typed input. Bounding nlen once here means no individual op can be
+     * the one that forgot, which is exactly how the previous 20-byte buffers
+     * came to be overrun after SM_NAME_MAX moved to 32. */
+    if (nlen > SM_NAME_MAX)
+        return swl_fail(res, "name longer than the %d-byte protocol limit", SM_NAME_MAX);
+    for (int i = 0; i < req->nnames; i++)
+        if (strlen(req->names[i]) > SM_NAME_MAX)
+            return swl_fail(res, "'%s' is longer than the %d-byte protocol limit",
+                            req->names[i], SM_NAME_MAX);
+
     switch (req->op) {
 
     case SWL_SEND: {
@@ -1101,13 +1202,13 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
     }
     case SWL_CLAIM: {
         if (!sm_name_valid(req->name, nlen))
-            return swl_fail(res, "names are a-z 0-9 _ . and at most 20 bytes");
+            return swl_fail(res, "names are a-z 0-9 - and at most 32 bytes");
         if (req->amount < 1)
             return swl_fail(res, "rent must be at least 1 koinu");
         uint8_t salt[32];
         if (!sidecar_find_salt(req->key.keypath, req->name, salt))
             return swl_do_commit(w, req, res);
-        uint8_t pre[32 + 20 + 20];
+        uint8_t pre[32 + SM_NAME_MAX + 20];
         size_t pn = 0;
         memcpy(pre + pn, salt, 32); pn += 32;
         memcpy(pre + pn, req->name, nlen); pn += nlen;
@@ -1127,7 +1228,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
             return swl_fail(res, "'%s' is owned right now — a claim would burn the rent for nothing", req->name);
         if (expired)                             // pruned commit: fresh salt, start over
             return swl_do_commit(w, req, res);
-        uint8_t payload[4 + 32 + 20] = { 0xFF, 0x50, 0x4E, SM_OP_CLAIM };
+        uint8_t payload[4 + 32 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_CLAIM };
         memcpy(payload + 4, salt, 32);
         memcpy(payload + 36, req->name, nlen);
         wout_carrier(&outs[0], payload, 36 + nlen, req->amount);   // rent rides the carrier
@@ -1142,11 +1243,11 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
             wout_carrier(&outs[0], payload, 4, req->amount);
             return swl_tail(w, req, res, outs, 1, req->amount, SM_OP_RENEW);
         }
-        uint8_t flags[71];                       // selective: the rent water-fills
+        uint8_t flags[SM_FLAGS_MAX];             // selective: the rent water-fills
         int nflags;                              // only the flagged names
         int64_t anchor;
-        if (!bits_and_anchor(w, req, res, 0, 71, flags, &nflags, &anchor)) return 0;
-        uint8_t payload[4 + 5 + 71] = { 0xFF, 0x50, 0x4E, SM_OP_RENEW };
+        if (!bits_and_anchor(w, req, res, 0, swl_flags_budget_renew(), flags, &nflags, &anchor)) return 0;
+        uint8_t payload[4 + 5 + SM_FLAGS_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_RENEW };
         for (int i = 0; i < 5; i++) payload[4 + i] = (uint8_t)((uint64_t)anchor >> (8 * i));
         memcpy(payload + 9, flags, (size_t)nflags);
         wout_carrier(&outs[0], payload, 9 + (size_t)nflags, req->amount);
@@ -1160,11 +1261,11 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
             wout_carrier(&outs[0], payload, 24, 0);                // fee-only, gift
             return swl_tail(w, req, res, outs, 1, 0, SM_OP_TRANSFER);
         }
-        uint8_t flags[71];                       // selective: [target][anchor][flags]
+        uint8_t flags[SM_FLAGS_MAX];             // selective: [target][anchor][flags]
         int nflags;                              // — only the flagged names move
         int64_t anchor;
-        if (!bits_and_anchor(w, req, res, 1, 51, flags, &nflags, &anchor)) return 0;
-        uint8_t payload[4 + 20 + 5 + 51] = { 0xFF, 0x50, 0x4E, SM_OP_TRANSFER };
+        if (!bits_and_anchor(w, req, res, 1, swl_flags_budget_xfer(), flags, &nflags, &anchor)) return 0;
+        uint8_t payload[4 + 20 + 5 + SM_FLAGS_XFER_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_TRANSFER };
         memcpy(payload + 4, req->to160, 20);
         for (int i = 0; i < 5; i++) payload[24 + i] = (uint8_t)((uint64_t)anchor >> (8 * i));
         memcpy(payload + 29, flags, (size_t)nflags);
@@ -1174,7 +1275,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
 
     case SWL_SELL: {
         if (!sm_name_valid(req->name, nlen))
-            return swl_fail(res, "names are a-z 0-9 _ . and at most 20 bytes");
+            return swl_fail(res, "names are a-z 0-9 - and at most 32 bytes");
         if (req->price < (uint64_t)SM_SELL_PRICE_FLOOR)
             return swl_fail(res, "price below the 3-koinu SELL floor");
         if (req->window_s != 0 && req->window_s < (uint32_t)SM_RESERVE_WINDOW)
@@ -1196,7 +1297,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         int64_t mtp = db_tip_mtp(req->dbpath);
         if (mtp && mtp + eff + SM_REORG_BUFFER > r.lease_expiry)
             return swl_fail(res, "lease shorter than the window — renew first");
-        uint8_t payload[4 + 8 + 4 + 20] = { 0xFF, 0x50, 0x4E, SM_OP_SELL };
+        uint8_t payload[4 + 8 + 4 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_SELL };
         for (int i = 0; i < 8; i++) payload[4 + i]  = (uint8_t)(req->price   >> (8 * i));
         for (int i = 0; i < 4; i++) payload[12 + i] = (uint8_t)(req->window_s >> (8 * i));
         memcpy(payload + 16, req->name, nlen);
@@ -1204,12 +1305,12 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         return swl_tail(w, req, res, outs, 1, 0, SM_OP_SELL);
     }
 
-    case SWL_RELEASE: {                          // 1..16 names, ONE bitmap tx
-        uint8_t flags[71];
+    case SWL_RELEASE: {                          // 1..PEP_NAMES_MAX names, ONE bitmap tx
+        uint8_t flags[SM_FLAGS_MAX];
         int nflags;
         int64_t anchor;
-        if (!bits_and_anchor(w, req, res, 1, 71, flags, &nflags, &anchor)) return 0;
-        uint8_t payload[4 + 5 + 71] = { 0xFF, 0x50, 0x4E, SM_OP_RELEASE };
+        if (!bits_and_anchor(w, req, res, 1, swl_flags_budget_renew(), flags, &nflags, &anchor)) return 0;
+        uint8_t payload[4 + 5 + SM_FLAGS_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_RELEASE };
         for (int i = 0; i < 5; i++) payload[4 + i] = (uint8_t)((uint64_t)anchor >> (8 * i));
         memcpy(payload + 9, flags, (size_t)nflags);
         wout_carrier(&outs[0], payload, 9 + (size_t)nflags, 0);
@@ -1234,7 +1335,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         if (pay_leg < (uint64_t)DUST)                  // §5: sub-dust can't relay
             return swl_fail(res, "un-executable listing — its 0.5%% pay-leg is below "
                                  "the 0.01 dust floor; it unlists when the window closes");
-        uint8_t payload[4 + 20] = { 0xFF, 0x50, 0x4E, SM_OP_RESERVE };
+        uint8_t payload[4 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_RESERVE };
         memcpy(payload + 4, req->name, nlen);
         wout_carrier(&outs[0], payload, 4 + nlen, (int64_t)burn_leg);  // burn-leg on the carrier
         wout_p2pkh(&outs[1], r.seller, (int64_t)pay_leg);              // pay-leg to the seller
@@ -1259,7 +1360,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         uint64_t remainder = r.price - r.burn_leg - r.pay_leg;   // legs as the fold recorded
         if (remainder < (uint64_t)DUST)                // §5: sub-dust can't relay
             return swl_fail(res, "un-executable — the settle remainder is below the 0.01 dust floor");
-        uint8_t payload[4 + 20] = { 0xFF, 0x50, 0x4E, SM_OP_SETTLE };
+        uint8_t payload[4 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_SETTLE };
         memcpy(payload + 4, req->name, nlen);
         wout_carrier(&outs[0], payload, 4 + nlen, 0);
         wout_p2pkh(&outs[1], r.seller, (int64_t)remainder);
@@ -1281,7 +1382,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
             return swl_fail(res, "the offer window closed");
         if (r.price < (uint64_t)DUST)                  // §5: sub-dust can't relay
             return swl_fail(res, "un-executable offer — its price is below the 0.01 dust floor");
-        uint8_t payload[4 + 20] = { 0xFF, 0x50, 0x4E, SM_OP_PAY };
+        uint8_t payload[4 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_PAY };
         memcpy(payload + 4, req->name, nlen);
         wout_carrier(&outs[0], payload, 4 + nlen, 0);
         wout_p2pkh(&outs[1], r.seller, (int64_t)r.price);          // full price
@@ -1290,7 +1391,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
 
     case SWL_OFFER: {                            // §3.7 SELL_TO — directed, 2 h fixed
         if (!sm_name_valid(req->name, nlen))
-            return swl_fail(res, "names are a-z 0-9 _ . and at most 20 bytes");
+            return swl_fail(res, "names are a-z 0-9 - and at most 32 bytes");
         if (req->price < (uint64_t)SM_DUST_FLOOR)
             return swl_fail(res, "price must be at least 1 koinu");
         if (req->price < (uint64_t)DUST)               // §5: PAY sends the full
@@ -1308,7 +1409,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         int64_t mtp = db_tip_mtp(req->dbpath);   // the fold wants window+buffer of lease
         if (mtp && mtp + SM_DIRECT_WINDOW + SM_REORG_BUFFER > r.lease_expiry)
             return swl_fail(res, "lease shorter than the offer window — renew first");
-        uint8_t payload[4 + 8 + 20 + 20] = { 0xFF, 0x50, 0x4E, SM_OP_SELL_TO };
+        uint8_t payload[4 + 8 + 20 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_SELL_TO };
         for (int i = 0; i < 8; i++) payload[4 + i] = (uint8_t)(req->price >> (8 * i));
         memcpy(payload + 12, req->to160, 20);
         memcpy(payload + 32, req->name, nlen);

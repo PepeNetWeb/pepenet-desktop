@@ -16,15 +16,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifdef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <poll.h>
-#include <unistd.h>
 #include <ctype.h>
 #include <stdint.h>
-#endif
 
 #define WEB_PORT APP_PROXY_PORT
 
@@ -37,12 +34,12 @@ static struct {
     EVP_PKEY *rootkey;
     Resolver *rv;
     int       lfd;
+    pthread_t thpac;                // PAC + CONNECT front door (APP_PAC_PORT):
+    int       lfdpac, runningpac;   // the browser path that needs no DNS at all
 #ifdef _WIN32
     pthread_t th443;                // browsers dial <name>:443 — no pf on
     int       lfd443, running443;   // Windows, but no privileged ports either:
                                     // bind it directly, best-effort
-    pthread_t thpac;                // PAC + CONNECT front door (APP_PAC_PORT):
-    int       lfdpac, runningpac;   // the browser path that needs no DNS at all
 #endif
 
     pthread_mutex_t mu;
@@ -96,15 +93,20 @@ static void *proxy443_main(void *arg) {
     g.running443 = 0;
     return NULL;
 }
+#endif
 
-// ── PAC + CONNECT front door (127.0.0.1:APP_PAC_PORT) ────────────────────────
-// The NRPT/:53 and :443 paths both ride the OS resolver, and DNS-leak-blocking
-// VPNs (Proton, Mullvad, …) install WFP filters that drop EVERY port-53 packet
-// — loopback included — so ".<tld>" stops resolving whenever the VPN is up.
-// This listener takes DNS out of the loop entirely: sysinstall registers
-// http://127.0.0.1:<pacport>/proxy.pac as the per-user AutoConfigURL, the PAC
-// steers *.<tld> at "PROXY 127.0.0.1:<pacport>" (everything else DIRECT), and
-// the browser sends CONNECT carrying the literal name. We answer 200 and
+// ── PAC + CONNECT front door (127.0.0.1:APP_PAC_PORT, both platforms) ────────
+// Every resolver-riding path is fragile somewhere: DNS-leak-blocking VPNs
+// (Proton, Mullvad, …) install WFP filters that drop EVERY port-53 packet —
+// loopback included — killing the Windows NRPT route; DoH browsers skip
+// /etc/resolver entirely; mac pf loopback rdr is unreliable and an
+// unprivileged process cannot bind a SPECIFIC loopback address below 1024
+// (wildcard only), so a local web server on *:443 silently shadows every
+// .<tld> site. This listener takes both DNS and :443 out of the loop:
+// sysinstall registers http://127.0.0.1:<pacport>/proxy.pac as the system
+// proxy autoconfig (HKCU AutoConfigURL / networksetup -setautoproxyurl), the
+// PAC steers *.<tld> at "PROXY 127.0.0.1:<pacport>" (everything else DIRECT),
+// and the browser sends CONNECT carrying the literal name. We answer 200 and
 // splice the socket into the resident :8443 DANE proxy — the TLS ClientHello
 // (SNI and all) flows through untouched, so minting/DANE work as on any path.
 // Plain http:// requests are bounced to https (parity with the dead :80).
@@ -119,16 +121,32 @@ static int fd_write_all(int fd, const char *p, size_t n) {
     return 0;
 }
 
+// scan the ACTUAL bytes (network input is not a C string — a strstr() here
+// goes blind at the first embedded NUL and the head is never found)
+static const char *mem_find(const char *p, size_t n, const char *pat, size_t pl) {
+    if (n < pl) return NULL;
+    for (size_t i = 0; i + pl <= n; i++)
+        if (memcmp(p + i, pat, pl) == 0) return p + i;
+    return NULL;
+}
+
 // accumulate until the blank line; returns total bytes (head + any pipelined
-// residue) or -1. buf is NUL-terminated; headers are ASCII so strstr is safe.
+// residue) or -1. buf is NUL-terminated AND free of embedded NULs on success,
+// which is what makes the strstr/strncmp/sscanf parsing in pac_conn sound.
 static int http_head_read(int fd, char *buf, size_t cap) {
-    size_t n = 0;
+    size_t n = 0, scanned = 0;
     while (n < cap - 1) {
         ssize_t r = recv(fd, buf + n, cap - 1 - n, 0);
         if (r <= 0) return -1;
         n += (size_t)r;
         buf[n] = 0;
-        if (strstr(buf, "\r\n\r\n")) return (int)n;
+        // a NUL before the terminator is never a legal request head (a bare
+        // TLS ClientHello, a smuggled "CONNECT foo\0bar.pepe") — drop it now
+        // instead of stalling to the 5 s SO_RCVTIMEO with a thread pinned
+        if (memchr(buf, 0, n)) return -1;
+        size_t from = scanned > 3 ? scanned - 3 : 0;       // straddling matches
+        if (mem_find(buf + from, n - from, "\r\n\r\n", 4)) return (int)n;
+        scanned = n;
     }
     return -1;
 }
@@ -194,15 +212,16 @@ static int pump_raw(int from, int to) {
 }
 
 static void splice_raw(int a, int b) {
-    int mx = (a > b ? a : b) + 1;
+    /* poll(), not select(): FD_SET on a descriptor >= FD_SETSIZE (1024) writes
+     * past the 128-byte fd_set on this connection thread's stack, and select()
+     * with nfds > FD_SETSIZE fails outright with EINVAL, silently killing the
+     * tunnel. Each CONNECT holds two fds, so a busy front door reaches that.
+     * pacd_main already polls; this is the one place that did not. */
     for (;;) {
-        fd_set rf;
-        FD_ZERO(&rf);
-        FD_SET(a, &rf);
-        FD_SET(b, &rf);
-        if (select(mx, &rf, NULL, NULL, NULL) <= 0) break;
-        if (FD_ISSET(a, &rf) && !pump_raw(a, b)) break;
-        if (FD_ISSET(b, &rf) && !pump_raw(b, a)) break;
+        struct pollfd pf[2] = { { a, POLLIN, 0 }, { b, POLLIN, 0 } };
+        if (poll(pf, 2, -1) <= 0) break;
+        if ((pf[0].revents & (POLLIN | POLLHUP | POLLERR)) && !pump_raw(a, b)) break;
+        if ((pf[1].revents & (POLLIN | POLLHUP | POLLERR)) && !pump_raw(b, a)) break;
     }
 }
 
@@ -266,8 +285,28 @@ static void *pac_conn_main(void *arg) {
 
 static void *pacd_main(void *arg) {
     (void)arg;
+#ifdef _WIN32
+    int tick = 0;
+#endif
     while (!g.stop) {                           // proxy_serve_ctl's stop rhythm
         struct pollfd pfd = { g.lfdpac, POLLIN, 0 };
+#ifdef _WIN32
+        // :443 comes back when its squatter (IIS, another proxy, a dev server)
+        // exits — retry every ~30 s so the padlock path heals without an app
+        // restart. The PAC route serves browsers either way.
+        if (++tick >= 60 && g.lfd443 < 0) {
+            tick = 0;
+            int fd = proxy_listen("127.0.0.1", 443);
+            if (fd >= 0) {
+                g.lfd443 = fd;
+                g.running443 = 1;
+                if (pthread_create(&g.th443, NULL, proxy443_main, NULL) != 0) {
+                    g.running443 = 0; close(fd); g.lfd443 = -1;
+                } else
+                    fprintf(stderr, "webproxy: 127.0.0.1:443 freed up — direct browser path on\n");
+            }
+        }
+#endif
         if (poll(&pfd, 1, 500) <= 0) continue;
         int cfd = accept(g.lfdpac, NULL, NULL);
         if (cfd < 0) continue;
@@ -281,7 +320,6 @@ static void *pacd_main(void *arg) {
     g.runningpac = 0;
     return NULL;
 }
-#endif
 
 int webproxy_start(const char *store_path, const char *chain_db) {
     if (g.started) return 1;
@@ -309,34 +347,40 @@ int webproxy_start(const char *store_path, const char *chain_db) {
     g.started = g.running = 1;
     if (pthread_create(&g.th, NULL, proxy_main, NULL) != 0) {
         g.started = g.running = 0;
+        close(g.lfd); g.lfd = -1;                      // nothing will ever serve it
+        resolver_close(g.rv); g.rv = NULL;
         return 0;
     }
     fprintf(stderr, "webproxy: DANE proxy on 127.0.0.1:%d (" APP_DOT_TLD ")\n", WEB_PORT);
 #ifdef _WIN32
-    // the browser path: on mac pf redirects :443→:8443; Windows has no pf but
-    // also no privileged-port rule, so serve :443 directly (loopback only).
-    // A busy port (IIS, another proxy) just loses the padlock path — the DNS
-    // tab keeps showing web install state.
+    // the direct browser path: Windows has no pf but also no privileged-port
+    // rule, so serve :443 directly (loopback only). A busy port (IIS, another
+    // proxy, a dev server) just loses this route for now — the pacd loop below
+    // retries every ~30 s, and the PAC route serves browsers regardless.
     g.lfd443 = proxy_listen("127.0.0.1", 443);
     if (g.lfd443 >= 0) {
         g.running443 = 1;
         if (pthread_create(&g.th443, NULL, proxy443_main, NULL) != 0) {
             g.running443 = 0;
+            close(g.lfd443);
             g.lfd443 = -1;
         } else
             fprintf(stderr, "webproxy: also on 127.0.0.1:443 (the browser path)\n");
     } else {
         g.lfd443 = -1;
-        fprintf(stderr, "webproxy: 127.0.0.1:443 unavailable — browsers cannot "
-                        "reach " APP_DOT_TLD " sites until it frees up\n");
+        fprintf(stderr, "webproxy: 127.0.0.1:443 in use — will retry; the PAC "
+                        "route still serves browsers\n");
     }
+#endif
     // the DNS-free browser path (see the front-door block comment): PAC +
-    // CONNECT, best-effort like :443 — a busy port just loses the VPN-proof route
+    // CONNECT — on mac the PRIMARY route (no unprivileged loopback :443, pf
+    // unreliable, DoH browsers skip /etc/resolver); on Windows the VPN-proof one
     g.lfdpac = proxy_listen("127.0.0.1", APP_PAC_PORT);
     if (g.lfdpac >= 0) {
         g.runningpac = 1;
         if (pthread_create(&g.thpac, NULL, pacd_main, NULL) != 0) {
             g.runningpac = 0;
+            close(g.lfdpac);
             g.lfdpac = -1;
         } else
             fprintf(stderr, "webproxy: PAC front door on 127.0.0.1:%d "
@@ -346,7 +390,6 @@ int webproxy_start(const char *store_path, const char *chain_db) {
         fprintf(stderr, "webproxy: 127.0.0.1:%d unavailable — the PAC path is off\n",
                 APP_PAC_PORT);
     }
-#endif
     return 1;
 }
 
@@ -354,17 +397,22 @@ void webproxy_stop(void) {
     if (!g.started) return;
     g.stop = 1;
     pthread_join(g.th, NULL);
+    if (g.lfd >= 0) {                    // the DANE listener: nobody else closes
+        close(g.lfd);                    // it, and SO_REUSEADDR alone will NOT
+        g.lfd = -1;                      // let the next start rebind it
+    }
 #ifdef _WIN32
     if (g.lfd443 >= 0) {
         pthread_join(g.th443, NULL);
+        close(g.lfd443);
         g.lfd443 = -1;
     }
+#endif
     if (g.lfdpac >= 0) {
         pthread_join(g.thpac, NULL);
         close(g.lfdpac);
         g.lfdpac = -1;
     }
-#endif
     if (g.rv) { resolver_close(g.rv); g.rv = NULL; }
     g.started = 0;
 }

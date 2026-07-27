@@ -1,12 +1,15 @@
-// pepenet.rc — Windows resources: the app icon (icon id 1 — tray_win.c loads
-// MAKEINTRESOURCE(1)) and the version block the MSI/Explorer read.
+// pepenet.rc.in — Windows resources: the app icon (icon id 1 — tray_win.c
+// loads MAKEINTRESOURCE(1)) and the version block the MSI/Explorer read.
+// configure_file() stamps PEPENET_VERSION in (CMakeLists — the one source);
+// the generated pepenet.rc lives in the build dir, hence the absolute icon
+// path.
 #include <winver.h>
 
-1 ICON "pepenet.ico"
+1 ICON "@PEPENET_RC_ICON@"
 
 1 VERSIONINFO
-FILEVERSION     0,1,2,0
-PRODUCTVERSION  0,1,2,0
+FILEVERSION     @PEPENET_VERSION_RC@,0
+PRODUCTVERSION  @PEPENET_VERSION_RC@,0
 FILEOS          VOS_NT_WINDOWS32
 FILETYPE        VFT_APP
 BEGIN
@@ -16,11 +19,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "PepeNet"
             VALUE "FileDescription",  "PepeNet - the decentralized-web client"
-            VALUE "FileVersion",      "0.1.2"
+            VALUE "FileVersion",      "@PEPENET_VERSION@"
             VALUE "InternalName",     "pepenet"
             VALUE "OriginalFilename", "pepenet.exe"
             VALUE "ProductName",      "PepeNet"
-            VALUE "ProductVersion",   "0.1.2"
+            VALUE "ProductVersion",   "@PEPENET_VERSION@"
         END
     END
     BLOCK "VarFileInfo"

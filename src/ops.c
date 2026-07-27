@@ -44,6 +44,20 @@
 #include "chain.h"          // idx_hex_to_hash
 #include "sm.h"             // SM_LISTED/SM_RESERVED — the reserve→settle park
                             // reads the fold's verdict off the projection
+
+// PEP_NAMES_MAX is the default-relay transfer reach: datacarriersize 83 →
+// 80-byte payload → (80 − 4 envelope − 20 target − 5 anchor) × 8 bits.
+_Static_assert(PEP_NAMES_MAX == (80 - 29) * 8,
+               "PEP_NAMES_MAX != default-relay transfer reach — update ops.h");
+
+// §3.5/§3.6 reach under the live relay policy (wallet.c owns the budgets).
+int ops_reach_renew(void)    { return swl_flags_budget_renew() * 8; }
+int ops_reach_transfer(void) { return swl_flags_budget_xfer() * 8; }
+int ops_names_cap(void) {
+    int c = ops_reach_transfer();
+    if (c > PEP_NAMES_MAX) c = PEP_NAMES_MAX;
+    return c > 0 ? c : 1;
+}
 #include "ui/strings.h"
 
 #include <pthread.h>
@@ -78,7 +92,7 @@ typedef struct {                // one broadcast, unconfirmed tx
     int64_t     change_value;
     int64_t     delta;          // ≤0 balance move once it folds
     int         mutator;        // will bump §3.5 last_set_mutation_height
-    char        name[24];       // "" none, "*" every name (transfer)
+    char        name[PEP_NAME_CAP]; // "" none, "*" every name (transfer)
     int64_t     since;          // stamped by the first poll that sees it as head
     SwlReq      intent;         // replay args if a break kills this link
     uint8_t     raw[SWL_RAW_MAX]; uint32_t rawlen;   // the signed bytes — kept so a
@@ -111,18 +125,18 @@ static struct {
 
     struct {                    // §3.2 parked: commit sent, claim fires per name
         int active;
-        char name[24];
+        char name[PEP_NAME_CAP];
         int64_t rent;
         int64_t started;
         int64_t last_try_h;
     } claims[CLAIMS_MAX];
     struct {                    // §3.7 parked: reserve sent, the settle fires
         int active;             // once the fold shows US as the winning buyer
-        char name[24];          // (a bid/reclaim is ONE user action: the whole
+        char name[PEP_NAME_CAP];// (a bid/reclaim is ONE user action: the whole
         int64_t started;        // price is disclosed and gated up front)
         int64_t last_try_h;
     } settles[CLAIMS_MAX];
-    char stale_commit[STALE_MAX][24];   // timed-out commits — a manual retry re-commits
+    char stale_commit[STALE_MAX][PEP_NAME_CAP];   // timed-out commits — a manual retry re-commits
 
     uint8_t done[64][32]; int done_n;   // ring of folded links' txids — their
                                         // unconsumed change is OURS, not a
@@ -255,7 +269,7 @@ static void stale_add(const char *name) {
     if (stale_has(name)) return;
     for (int i = 0; i < STALE_MAX; i++)
         if (!g.stale_commit[i][0]) {
-            snprintf(g.stale_commit[i], 24, "%s", name);
+            snprintf(g.stale_commit[i], PEP_NAME_CAP, "%s", name);
             return;
         }
 }
@@ -270,7 +284,7 @@ static void park_claim(const char *name, int64_t rent) {
     for (int i = 0; i < CLAIMS_MAX; i++)
         if (!g.claims[i].active) {
             g.claims[i].active = 1;
-            snprintf(g.claims[i].name, 24, "%s", name);
+            snprintf(g.claims[i].name, PEP_NAME_CAP, "%s", name);
             g.claims[i].rent = rent;
             g.claims[i].started = 0;        // stamped by the next poll
             g.claims[i].last_try_h = -1;
@@ -297,7 +311,7 @@ static void park_settle(const char *name) {
     for (int i = 0; i < CLAIMS_MAX; i++)
         if (!g.settles[i].active) {
             g.settles[i].active = 1;
-            snprintf(g.settles[i].name, 24, "%s", name);
+            snprintf(g.settles[i].name, PEP_NAME_CAP, "%s", name);
             g.settles[i].started = 0;       // stamped by the next poll
             g.settles[i].last_try_h = -1;
             persist_parks();
@@ -324,9 +338,9 @@ static void load_parks(void) {
     g.loading = 1;
     char line[160];
     while (fgets(line, sizeof line, f)) {
-        char nm[24]; long long rent;
-        if (line[0] == 'c' && sscanf(line, "c %lld %23s", &rent, nm) == 2) park_claim(nm, (int64_t)rent);
-        else if (line[0] == 's' && sscanf(line, "s %23s", nm) == 1)        park_settle(nm);
+        char nm[PEP_NAME_CAP]; long long rent;
+        if (line[0] == 'c' && sscanf(line, "c %lld %32s", &rent, nm) == 2) park_claim(nm, (int64_t)rent);
+        else if (line[0] == 's' && sscanf(line, "s %32s", nm) == 1)        park_settle(nm);
     }
     g.loading = 0;
     pthread_mutex_unlock(&g.mu);
@@ -735,27 +749,27 @@ int64_t ops_balance_delta(void) {
     return d;
 }
 
-static int name_in(char (*out)[24], int n, const char *s) {
+static int name_in(char (*out)[PEP_NAME_CAP], int n, const char *s) {
     for (int i = 0; i < n; i++)
         if (!strcmp(out[i], s)) return 1;
     return 0;
 }
 
-int ops_claiming(char (*out)[24], int max) {
+int ops_claiming(char (*out)[PEP_NAME_CAP], int max) {
     pthread_mutex_lock(&g.mu);
     int n = 0;
     for (int i = 0; i < CLAIMS_MAX && n < max; i++)         // parked for the claim
         if (g.claims[i].active && !name_in(out, n, g.claims[i].name))
-            snprintf(out[n++], 24, "%s", g.claims[i].name);
+            snprintf(out[n++], PEP_NAME_CAP, "%s", g.claims[i].name);
     for (int i = 0; i < g.qn && n < max; i++)               // waiting to build
         if (g.q[i].req.op == SWL_CLAIM && !name_in(out, n, g.q[i].req.name))
-            snprintf(out[n++], 24, "%s", g.q[i].req.name);
+            snprintf(out[n++], PEP_NAME_CAP, "%s", g.q[i].req.name);
     for (int i = 0; i < g.ln && n < max; i++)               // commit/claim in flight
         if (g.links[i].intent.op == SWL_CLAIM && !name_in(out, n, g.links[i].name))
-            snprintf(out[n++], 24, "%s", g.links[i].name);
+            snprintf(out[n++], PEP_NAME_CAP, "%s", g.links[i].name);
     if (g.cur_on && n < max && g.cur.req.op == SWL_CLAIM    // building right now
         && !name_in(out, n, g.cur.req.name))
-        snprintf(out[n++], 24, "%s", g.cur.req.name);
+        snprintf(out[n++], PEP_NAME_CAP, "%s", g.cur.req.name);
     pthread_mutex_unlock(&g.mu);
     return n;
 }
@@ -868,8 +882,8 @@ int ops_renew(int64_t rent) {
     return push_user(SWL_RENEW, &r, TR(S_OPS_LBL_RENEW));
 }
 
-int ops_renew_sel(const char (*names)[24], int n, int64_t rent) {
-    if (n < 1 || n > 16) return 0;
+int ops_renew_sel(const char (*names)[PEP_NAME_CAP], int n, int64_t rent) {
+    if (n < 1 || n > ops_names_cap()) return 0;
     char label[48];
     if (n == 1) snprintf(label, sizeof label, TR(S_OPS_LBL_RENEW_ONE_FMT), names[0]);
     else        snprintf(label, sizeof label, TR(S_OPS_LBL_RENEW_N_FMT), n);
@@ -889,8 +903,8 @@ int ops_transfer(const uint8_t to160[20]) {
     return push_user(SWL_TRANSFER, &r, TR(S_OPS_LBL_TRANSFER_ALL));
 }
 
-int ops_transfer_sel(const char (*names)[24], int n, const uint8_t to160[20]) {
-    if (n < 1 || n > 16) return 0;
+int ops_transfer_sel(const char (*names)[PEP_NAME_CAP], int n, const uint8_t to160[20]) {
+    if (n < 1 || n > ops_names_cap()) return 0;
     char label[48];
     if (n == 1) snprintf(label, sizeof label, TR(S_OPS_LBL_TRANSFER_ONE_FMT), names[0]);
     else        snprintf(label, sizeof label, TR(S_OPS_LBL_TRANSFER_N_FMT), n);
@@ -914,8 +928,8 @@ int ops_sell(const char *name, uint64_t price, uint32_t window_s) {
     return push_user(SWL_SELL, &r, label);
 }
 
-int ops_release_multi(const char (*names)[24], int n) {
-    if (n < 1 || n > 16) return 0;
+int ops_release_multi(const char (*names)[PEP_NAME_CAP], int n) {
+    if (n < 1 || n > ops_names_cap()) return 0;
     char label[48];
     if (n == 1) snprintf(label, sizeof label, TR(S_OPS_LBL_RELEASE_ONE_FMT), names[0]);
     else        snprintf(label, sizeof label, TR(S_OPS_LBL_RELEASE_N_FMT), n);
@@ -928,7 +942,7 @@ int ops_release_multi(const char (*names)[24], int n) {
 }
 
 int ops_release(const char *name) {
-    char one[1][24];
+    char one[1][PEP_NAME_CAP];
     snprintf(one[0], sizeof one[0], "%s", name);
     return ops_release_multi(one, 1);
 }
@@ -1006,8 +1020,8 @@ void ops_poll(int64_t height, int64_t now) {
     // claim leg is covered by the journal alone — its rent isn't on the chain.
     if (!g.reconciled && height > 0) {
         g.reconciled = 1;
-        EngineName rows[16];
-        int n = engine_market_mine(g.h160, rows, 16);
+        EngineName rows[PEP_NAMES_MAX];
+        int n = engine_market_mine(g.h160, rows, PEP_NAMES_MAX);
         for (int i = 0; i < n; i++)
             if (rows[i].st == SM_RESERVED && spark_find(rows[i].name) < 0)
                 park_settle(rows[i].name);
@@ -1119,8 +1133,8 @@ void ops_poll(int64_t height, int64_t now) {
             if (req_touches(&g.q[j].req, g.settles[i].name)) busy_name = 1;
         if (busy_name) continue;
         g.settles[i].last_try_h = height;               // one look per new tip
-        EngineName rows[16];                            // the fold's verdict
-        int n = engine_market_mine(g.h160, rows, 16), won = 0;
+        EngineName rows[PEP_NAMES_MAX];                            // the fold's verdict
+        int n = engine_market_mine(g.h160, rows, PEP_NAMES_MAX), won = 0;
         for (int j = 0; j < n && !won; j++)
             won = rows[j].st == SM_RESERVED && !strcmp(rows[j].name, g.settles[i].name);
         if (won) {                                      // our reserve folded —

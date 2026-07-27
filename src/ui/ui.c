@@ -1,6 +1,8 @@
 // ui.c — frame entry: background, titlebar, tab strip, view routing, overlays.
 #include "ui.h"
 #include "../ops.h"
+#include "../platform.h"
+#include "../update.h"
 
 #include "../../vendor/sokol/sokol_app.h"
 
@@ -106,7 +108,7 @@ static void status_bar(struct nk_context *ctx, float W, float H) {
     static int hold;                    // frames left on a DONE/FAIL readout
     char line[256];
     struct nk_color col = C_DIM;
-    int idle = 0, warn = 0;
+    int idle = 0, warn = 0, upd = 0;
     if (st.phase == OPS_BUSY) {
         snprintf(line, sizeof line, TR(S_FOOT_BUSY_FMT), st.label);
         hold = 0;
@@ -142,12 +144,17 @@ static void status_bar(struct nk_context *ctx, float W, float H) {
         hold = 0;
     } else {
         hold = 0;
-        // no op in flight: surface a web-health warning (9a), else idle
+        // no op in flight: web-health warning (9a) > update notice > idle
+        char uver[32];
         if (M.dns.running && (!M.dns.resolver_running || !M.web.running)) {
             snprintf(line, sizeof line, TR(S_FOOT_WEB_DEGRADED_FMT),
                      !M.dns.resolver_running ? TR(S_FOOT_RESOLVER_DOWN) : TR(S_FOOT_PROXY_DOWN));
             col = C_RED;
             warn = 1;
+        } else if (update_available(uver, sizeof uver)) {
+            snprintf(line, sizeof line, TR(S_FOOT_UPDATE_FMT), APP_NAME, uver);
+            col = C_ACCENT;
+            upd = 1;
         } else {
             snprintf(line, sizeof line, "%s", TR(S_FOOT_IDLE));
             col = C_GHOST;
@@ -176,6 +183,14 @@ static void status_bar(struct nk_context *ctx, float W, float H) {
         snprintf(line, sizeof line, "%s", probe);
     }
     dk_text(ctx, F_SM10, lx, by + 6, col, line);
+    // the update notice is a link: the drawn line's strip opens the releases
+    // page (browser) — notify-only by design, the install stays in the
+    // user's hands (update.h)
+    if (upd) {
+        struct nk_rect ur = nk_rect(0, by, lx + dk_w(F_SM10, line) + 12, SB_H);
+        if (dk_hot(ctx, ur)) sapp_set_mouse_cursor(SAPP_MOUSECURSOR_POINTING_HAND);
+        if (dk_click(ctx, ur)) platform_open_url(APP_RELEASES_URL "/latest");
+    }
 }
 
 void ui_frame(struct nk_context *ctx, float W, float H) {

@@ -19,6 +19,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <wincred.h>
+#include <winhttp.h>
 #include <direct.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -158,6 +159,55 @@ void platform_reveal_file(const char *path) {
     char args[1200];
     snprintf(args, sizeof args, "/select,\"%s\"", nat);
     ShellExecuteA(NULL, "open", "explorer.exe", args, NULL, SW_SHOWNORMAL);
+}
+
+// WinHTTP follows the redirect chain on GET by default; WINHTTP_OPTION_URL on
+// the request handle is the URL it landed on. DEFAULT_PROXY honors the
+// system-configured proxy. Blocking (platform.h: worker threads only).
+int platform_http_final_url(const char *url, char *out, size_t cap) {
+    if (!url || !out || !cap) return 0;
+    out[0] = 0;
+    wchar_t wurl[1024], host[256], path[1024];
+    if (!MultiByteToWideChar(CP_UTF8, 0, url, -1, wurl, 1024)) return 0;
+    URL_COMPONENTSW uc;
+    memset(&uc, 0, sizeof uc);
+    uc.dwStructSize   = sizeof uc;
+    uc.lpszHostName   = host; uc.dwHostNameLength = 256;
+    uc.lpszUrlPath    = path; uc.dwUrlPathLength  = 1024;
+    if (!WinHttpCrackUrl(wurl, 0, 0, &uc)) return 0;
+    int ok = 0;
+    HINTERNET ses = WinHttpOpen(L"desktop-update-check/1",
+                                WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!ses) return 0;
+    WinHttpSetTimeouts(ses, 15000, 15000, 30000, 30000);
+    HINTERNET con = WinHttpConnect(ses, host, uc.nPort, 0);
+    HINTERNET req = con ? WinHttpOpenRequest(con, L"GET", path, NULL,
+                              WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                              uc.nScheme == INTERNET_SCHEME_HTTPS
+                                  ? WINHTTP_FLAG_SECURE : 0)
+                        : NULL;
+    if (req && WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                                  WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+        WinHttpReceiveResponse(req, NULL)) {
+        DWORD status = 0, sl = sizeof status;
+        WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &status, &sl,
+                            WINHTTP_NO_HEADER_INDEX);
+        wchar_t fin[1024];
+        DWORD fl = sizeof fin;
+        if (status >= 200 && status < 300 &&
+            WinHttpQueryOption(req, WINHTTP_OPTION_URL, fin, &fl)) {
+            if (WideCharToMultiByte(CP_UTF8, 0, fin, -1, out, (int)cap, NULL, NULL))
+                ok = 1;
+            else
+                out[0] = 0;
+        }
+    }
+    if (req) WinHttpCloseHandle(req);
+    if (con) WinHttpCloseHandle(con);
+    WinHttpCloseHandle(ses);
+    return ok;
 }
 
 // ── secret storage (Windows Credential Manager — DPAPI-backed at rest) ────────

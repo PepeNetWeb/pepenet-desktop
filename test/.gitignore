@@ -1,0 +1,14 @@
+*.o
+*.dSYM/
+j_webproxy
+t_bip39
+t_dirscan
+t_dnsrec
+t_fee
+t_hdwallet
+t_ops
+t_qr
+t_update
+t_wallet
+t_webproxy
+t_zonekey

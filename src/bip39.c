@@ -50,11 +50,16 @@ int bip39_entropy_from_mnemonic(const char *mnemonic, uint8_t entropy[16]) {
 
     char buf[512];
     size_t bl = 0;
-    for (const char *p = mnemonic; *p && bl < sizeof buf - 1; p++) {
+    const char *p = mnemonic;
+    for (; *p && bl < sizeof buf - 1; p++) {
         char c = *p;
         if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');   // fold case
         buf[bl++] = c;
     }
+    if (*p) return 0;   // input outran the window — REJECT, never truncate: a
+                        // silent cut can land just after a word that is a
+                        // proper prefix of the one actually typed (act/action,
+                        // art/artefact, …) and restore a DIFFERENT wallet
     buf[bl] = 0;
 
     const char *words[13]; int nw = 0;

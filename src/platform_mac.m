@@ -118,6 +118,44 @@ void platform_reveal_file(const char *path) {
     posix_spawn(&pid, "/usr/bin/open", NULL, NULL, argv, environ);
 }
 
+// NSURLSession follows the redirect chain; the completion's response carries
+// the final URL. Blocking by design (platform.h: worker threads only) — the
+// semaphore never hangs past the session's request timeout.
+int platform_http_final_url(const char *url, char *out, size_t cap) {
+    if (!url || !out || !cap) return 0;
+    out[0] = 0;
+    __block int ok = 0;
+    @autoreleasepool {
+        NSURL *u = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
+        if (!u) return 0;
+        NSURLSessionConfiguration *cfg =
+            [NSURLSessionConfiguration ephemeralSessionConfiguration];
+        cfg.timeoutIntervalForRequest  = 30;
+        cfg.timeoutIntervalForResource = 60;
+        NSURLSession *ses = [NSURLSession sessionWithConfiguration:cfg];
+        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+        [[ses dataTaskWithURL:u completionHandler:^(NSData *data,
+                                                    NSURLResponse *resp,
+                                                    NSError *err) {
+            (void)data;
+            NSHTTPURLResponse *h = (NSHTTPURLResponse *)resp;
+            if (!err && [h isKindOfClass:[NSHTTPURLResponse class]] &&
+                h.statusCode >= 200 && h.statusCode < 300 && h.URL) {
+                const char *s = h.URL.absoluteString.UTF8String;
+                if (s && strlen(s) < cap) {
+                    memcpy(out, s, strlen(s) + 1);
+                    ok = 1;
+                }
+            }
+            dispatch_semaphore_signal(sem);
+        }] resume];
+        dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+        [ses finishTasksAndInvalidate];
+        dispatch_release(sem);
+    }
+    return ok;
+}
+
 // ── secret storage (Keychain generic-password items) ──────────────────────────
 // The keychain "service" is the PER-INSTANCE namespace, keyed off appconf's data
 // dir name (this build: "pepenet") — NOT the base protocol name — so PepeNet and

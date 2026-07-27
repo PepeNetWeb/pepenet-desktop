@@ -143,7 +143,7 @@ static struct nk_rect pop_balance(struct nk_context *ctx, struct nk_rect screen)
 static struct nk_rect pop_names_more(struct nk_context *ctx, struct nk_rect screen) {
     int nrel = 0;
     for (int i = 0; i < M.nnames; i++)
-        if ((UI.sel_mask >> i) & 1 &&
+        if (ui_sel_get(i) &&
             M.names[i].st == NS_OWNED && !M.names[i].pending)
             nrel++;
     float w = 156, h = 2 * 38 + 2;

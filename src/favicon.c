@@ -40,7 +40,14 @@ static struct {
 } g = { .mx = PTHREAD_MUTEX_INITIALIZER, .cv = PTHREAD_COND_INITIALIZER };
 
 // ── decode: sniff the container, return RGBA (malloc) ────────────────────────
-static uint8_t *decode_rgba(const uint8_t *d, size_t n, int *w, int *h);
+// decode_rgba and decode_ico are MUTUALLY recursive (an .ico entry may hold a
+// PNG, and in the wild also another ICONDIR). A hostile 22-byte body can point
+// its only entry at offset 0 with length == the whole body, so the callee sees
+// the identical buffer. Two independent guards make that impossible: every
+// entry must yield a slice strictly SMALLER than its container (so n strictly
+// decreases), and FAV_ICO_DEPTH bounds the nesting regardless.
+#define FAV_ICO_DEPTH 4
+static uint8_t *decode_rgba_at(const uint8_t *d, size_t n, int *w, int *h, int depth);
 
 // 32bpp BI_RGB DIB inside an .ico entry (the classic case stb can't read: an
 // ico entry is a BARE BITMAPINFOHEADER — no BMP file header — and its height
@@ -74,7 +81,10 @@ static uint8_t *decode_ico_dib(const uint8_t *d, size_t n, int *w, int *h) {
     return out;
 }
 
-static uint8_t *decode_ico(const uint8_t *d, size_t n, int *w, int *h) {
+static uint8_t *decode_ico_at(const uint8_t *d, size_t n, int *w, int *h, int depth) {
+    if (depth >= FAV_ICO_DEPTH) return NULL;   // backstop: bound the nesting
+    // every byte read below lives inside this guard: d[4]/d[5] need 6, and the
+    // loop condition covers all 16 bytes of every entry it dereferences
     if (n < 6 + 16) return NULL;
     int count = d[4] | d[5] << 8;
     if (count <= 0) return NULL;
@@ -85,16 +95,21 @@ static uint8_t *decode_ico(const uint8_t *d, size_t n, int *w, int *h) {
         int side = e[0] ? e[0] : 256;
         uint32_t len = e[8] | e[9] << 8 | e[10] << 16 | (uint32_t)e[11] << 24;
         uint32_t off = e[12] | e[13] << 8 | e[14] << 16 | (uint32_t)e[15] << 24;
-        if ((size_t)off + len > n || len == 0) continue;
+        if (len == 0 || (size_t)off + (size_t)len > n) continue;
+        // progress must be PROVABLE: the entry's payload sits after the
+        // 6-byte ICONDIR and the directory itself, so a slice as large as the
+        // whole body is self-referential (off == 0, len == n is the 22-byte
+        // wedge) — refuse it, and the recursion below is strictly decreasing
+        if ((size_t)len >= n) continue;
         if (side > best_side) { best_side = side; best_off = off; best_len = len; }
     }
     if (best_side < 0) return NULL;
-    return decode_rgba(d + best_off, best_len, w, h);     // PNG entry or DIB
+    return decode_rgba_at(d + best_off, best_len, w, h, depth + 1);  // PNG or DIB
 }
 
-static uint8_t *decode_rgba(const uint8_t *d, size_t n, int *w, int *h) {
+static uint8_t *decode_rgba_at(const uint8_t *d, size_t n, int *w, int *h, int depth) {
     if (n >= 4 && d[0] == 0 && d[1] == 0 && d[2] == 1 && d[3] == 0)
-        return decode_ico(d, n, w, h);
+        return decode_ico_at(d, n, w, h, depth);
     int c = 0;
     uint8_t *px = stbi_load_from_memory(d, (int)n, w, h, &c, 4);
     if (!px && n >= 40) return decode_ico_dib(d, n, w, h); // bare .ico DIB
@@ -103,6 +118,11 @@ static uint8_t *decode_rgba(const uint8_t *d, size_t n, int *w, int *h) {
         return NULL;
     }
     return px;                                             // stbi malloc = free()-able
+}
+
+// the unchanged entry point
+static uint8_t *decode_rgba(const uint8_t *d, size_t n, int *w, int *h) {
+    return decode_rgba_at(d, n, w, h, 0);
 }
 
 // ── worker ───────────────────────────────────────────────────────────────────

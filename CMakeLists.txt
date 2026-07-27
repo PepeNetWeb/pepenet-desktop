@@ -31,6 +31,12 @@ project(pepenet-desktop C)
 
 set(CMAKE_C_STANDARD 11)
 
+# THE version. Everything that names a version derives from this one line:
+# the bundle/Info.plist, the Windows version block (pepenet.rc.in), the P2P
+# subver (appconf.h APP_CHAIN_AGENT), the in-app update check (update.c), and
+# both package scripts (they sed it out of this file).
+set(PEPENET_VERSION "0.2.0")
+
 if(WIN32)
     # MinGW gates localtime_r/gmtime_r behind this; harmless everywhere else
     add_compile_definitions(_POSIX_THREAD_SAFE_FUNCTIONS=200112L)
@@ -224,6 +230,7 @@ set(DESKTOP_COMMON_SRCS
     src/fee.c
     src/qr.c
     src/favicon.c
+    src/update.c
     src/ui/theme.c
     src/ui/strings.c
     src/ui/draw.c
@@ -240,13 +247,17 @@ set(DESKTOP_COMMON_SRCS
 
 if(WIN32)
     enable_language(RC)
+    # the version block is templated so PEPENET_VERSION stays the one source
+    string(REPLACE "." "," PEPENET_VERSION_RC "${PEPENET_VERSION}")
+    set(PEPENET_RC_ICON "${CMAKE_SOURCE_DIR}/packaging/pepenet.ico")
+    configure_file(packaging/pepenet.rc.in ${CMAKE_BINARY_DIR}/pepenet.rc @ONLY)
     add_executable(pepenet-desktop
         ${DESKTOP_COMMON_SRCS}
         src/sokol_impl_win.c
         src/tray_win.c
         src/platform_win.c
         src/compat/win_compat.c
-        packaging/pepenet.rc
+        ${CMAKE_BINARY_DIR}/pepenet.rc
         ${DESKTOP_ENGINE_SRCS}
         ${DESKTOP_IDX_SRCS}
     )
@@ -265,7 +276,7 @@ if(WIN32)
     target_link_libraries(pepenet-desktop PRIVATE
         sqlite3 secp256k1 dns_embed tls_embed
         d3d11 dxgi dwmapi comctl32 shell32 ole32 uuid advapi32 gdi32 user32
-        ws2_32 crypt32 bcrypt wininet
+        ws2_32 crypt32 bcrypt wininet winhttp
     )
     # fonts + the privileged install helper ride in resources\ next to the exe
     add_custom_command(TARGET pepenet-desktop POST_BUILD
@@ -322,8 +333,8 @@ else()
         MACOSX_BUNDLE_BUNDLE_NAME "PepeNet"
         MACOSX_BUNDLE_ICON_FILE "pepenet.icns"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.pepenet.app"
-        MACOSX_BUNDLE_BUNDLE_VERSION "0.1.2"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.2"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PEPENET_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PEPENET_VERSION}"
     )
     target_link_libraries(pepenet-desktop PRIVATE
         "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
@@ -336,7 +347,8 @@ endif()
 # dev runs load fonts straight from the tree; the staged copy above serves
 # packaged builds (platform_resource_path looks in resources first)
 target_compile_definitions(pepenet-desktop PRIVATE
-    SHIB_DEV_FONT_DIR="${CMAKE_SOURCE_DIR}/vendor/fonts")
+    SHIB_DEV_FONT_DIR="${CMAKE_SOURCE_DIR}/vendor/fonts"
+    PEPENET_VERSION="${PEPENET_VERSION}")
 if(APPLE AND NOT WIN32)
     target_compile_definitions(pepenet-desktop PRIVATE
         SHIB_DEV_TRAY_ICON="${CMAKE_SOURCE_DIR}/packaging/pepenet-tray.png")

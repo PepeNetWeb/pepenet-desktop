@@ -15,7 +15,8 @@ BUILD="$ROOT/build"
 DIST="$ROOT/dist"
 APP_NAME="pepenet-desktop"   # CMake target
 BUNDLE="pepenet"             # OUTPUT_NAME → pepenet.app (CMakeLists)
-VERSION="0.1.2"
+VERSION="$(sed -n 's/^set(PEPENET_VERSION "\([^"]*\)").*/\1/p' "$ROOT/CMakeLists.txt")"
+[[ -n "$VERSION" ]] || { echo "error: PEPENET_VERSION not found in CMakeLists.txt" >&2; exit 1; }
 CODESIGN_ID="${CODESIGN_ID:-}"
 
 echo "==> Configuring (Release)"

@@ -10,6 +10,15 @@
 
 #include <stdint.h>
 
+/* The longest name the chain accepts is SM_NAME_MAX = 32 bytes (protocol §3.1),
+ * so every in-app name buffer needs 32 + a NUL. These structs predate the cap
+ * moving from 20 to 32; sizing them at 24 silently TRUNCATED anything longer,
+ * which meant committing and claiming a different name than the user typed. */
+#ifndef PEP_NAME_CAP
+#define PEP_NAME_CAP 33
+#endif
+
+
 typedef struct {
     int64_t  height;        // our folded tip (0 until first status read)
     int64_t  activation;    // fold activation height (db meta; ops mined below
@@ -31,7 +40,7 @@ typedef struct {
 
 // one names-projection row, GUI-shaped (states are sm.h SM_OWNED..SM_RESERVED)
 typedef struct {
-    char     name[24];
+    char     name[PEP_NAME_CAP];
     int      st;
     int64_t  lease_expiry;
     uint64_t price;         // LISTED/OFFERED/RESERVED

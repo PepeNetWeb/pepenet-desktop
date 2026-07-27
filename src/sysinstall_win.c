@@ -196,10 +196,9 @@ void sysinstall_probe(InstallState *out) {
     // self-heal the PAC route on consented installs (the marker IS the consent):
     // upgrades from pre-PAC builds and registry-scrubbing VPN clients both land
     // here. A cheap RegQuery per probe; the write fires only when it is missing.
-    if (out->pf_anchor) {
-        char cur[1024];
-        if (!pac_current(cur, sizeof cur)) pac_install();
-    }
+    char cur[1024];
+    if (out->pf_anchor && !pac_current(cur, sizeof cur)) pac_install();
+    out->pac_on = pac_current(cur, sizeof cur) && strcmp(cur, PAC_URL) == 0;
 }
 
 // ── install / uninstall ───────────────────────────────────────────────────────

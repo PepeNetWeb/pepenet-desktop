@@ -58,6 +58,13 @@ void sysinstall_probe(InstallState *out) {
             fclose(f);
         }
     }
+
+    // PAC route: one scutil call reflects the ACTIVE network service's proxy
+    // config — enabled AND pointing at our front door. This is the primary
+    // browser route on mac (pf is best-effort, DoH browsers skip /etc/resolver).
+    out->pac_on = cmd_ok(
+        "scutil --proxy | awk '/ProxyAutoConfigEnable : 1/{e=1} "
+        "/127\\.0\\.0\\.1:" APP_PAC_PORT_S "\\/proxy\\.pac/{u=1} END{exit !(e&&u)}'");
 }
 
 int sysinstall_install(void) {
@@ -69,7 +76,8 @@ int sysinstall_install(void) {
     helper_path(helper, sizeof helper);
     snprintf(script, sizeof script,
              "osascript -e 'do shell script \"/bin/sh \\\"%s\\\" install " APP_TLD " "
-             "--dns-port " APP_DNS_PORT_S " --proxy-port " APP_PROXY_PORT_S "\" "
+             "--dns-port " APP_DNS_PORT_S " --proxy-port " APP_PROXY_PORT_S " "
+             "--pac-port " APP_PAC_PORT_S "\" "
              "with administrator privileges' >/dev/null 2>&1",
              helper);
     int sys = cmd_ok(script);

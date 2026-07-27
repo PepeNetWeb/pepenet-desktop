@@ -54,6 +54,14 @@ int platform_resource_path(const char *name, char *out, size_t cap);
 // Open a URL in the user's default browser. Fire-and-forget, best-effort.
 void platform_open_url(const char *url);
 
+// GET an https URL through the OS HTTP stack (system proxy honored), follow
+// redirects, and return the FINAL URL — the body is discarded. The update
+// check reads the current release tag out of where GitHub's /releases/latest
+// redirect lands; nothing fetched is ever parsed as content or executed.
+// 1 + final URL into `out` on HTTP 2xx, 0 on any failure. Blocking (network
+// timeouts apply) — call from a worker thread, never the UI thread.
+int platform_http_final_url(const char *url, char *out, size_t cap);
+
 // Reveal a file in the OS file manager (Finder / Explorer), selecting it.
 // Best-effort.
 void platform_reveal_file(const char *path);

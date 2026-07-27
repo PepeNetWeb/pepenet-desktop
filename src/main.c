@@ -10,8 +10,9 @@
 //     embeds the same way in later slices: each engine owns its thread and
 //     store, the UI reads status snapshots.
 //
-// Args: pepenet-desktop [--demo] [dbpath] [peer-ip] [coin]
-// (defaults: ~/.pepenet/pep.db, the pep seed peer, "pep")
+// Args: pepenet-desktop [--demo] [--datacarriersize=N] [dbpath] [peer-ip] [coin]
+// (defaults: ~/.pepenet/pep.db, the pep seed peer, "pep", datacarriersize 83 —
+//  the relay policy the wallet builds within; see wallet.h)
 #include "../vendor/sokol/sokol_app.h"
 #include "../vendor/sokol/sokol_gfx.h"
 #include "../vendor/sokol/sokol_glue.h"
@@ -37,6 +38,7 @@
 #include "pepenet/crypto.h" // sp_hash160
 #include "wallet.h"
 #include "ops.h"
+#include "update.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
 
@@ -124,6 +126,7 @@ static void engines_boot(void) {
     }
     zonekey_boot(S.coin, S.dbpath);     // hot zone key the wallet delegates to
     engine_start(S.coin, S.dbpath, S.ip);
+    update_start();                     // daily notify-only release check
     S.engines_up = 1;
 }
 
@@ -170,12 +173,12 @@ static void apply_open_tok(const char *o) {
     }
     if (!M.demo) return;
     // fixture-touching states below (demo only)
-    if (!strcmp(o, "names-sel")) { UI.view = V_NAMES; UI.sel_mask = 0x7; UI.name_expanded = 1; }
+    if (!strcmp(o, "names-sel")) { UI.view = V_NAMES; ui_sel_set(0); ui_sel_set(1); ui_sel_set(2); UI.name_expanded = 1; }
     else if (!strcmp(o, "names-listed")) { UI.view = V_NAMES; UI.name_expanded = 2; }
     else if (!strcmp(o, "balance")) { UI.popup = POP_BALANCE; UI.pop_anchor = nk_rect(424, 44, 120, 28); }
     else if (!strcmp(o, "renew")) { UI.dialog = DLG_RENEW; UI.name_target = 1; UI.renew_days = 353; }
-    else if (!strcmp(o, "batch")) { UI.dialog = DLG_BATCH_RENEW; UI.sel_mask = 0x7; }
-    else if (!strcmp(o, "batch-transfer")) { UI.dialog = DLG_BATCH_TRANSFER; UI.sel_mask = 0x7; UI.send_to_len = 0; }
+    else if (!strcmp(o, "batch")) { UI.dialog = DLG_BATCH_RENEW; ui_sel_set(0); ui_sel_set(1); ui_sel_set(2); }
+    else if (!strcmp(o, "batch-transfer")) { UI.dialog = DLG_BATCH_TRANSFER; ui_sel_set(0); ui_sel_set(1); ui_sel_set(2); UI.send_to_len = 0; }
     else if (!strcmp(o, "sell")) { UI.dialog = DLG_SELL; UI.name_target = 0; UI.sell_days = 30; snprintf(UI.sell_price, sizeof UI.sell_price, "40.0"); UI.sell_price_len = 4; }
     else if (!strcmp(o, "release")) { UI.dialog = DLG_RELEASE; UI.name_target = 0; }
     else if (!strcmp(o, "bid")) { UI.dialog = DLG_BID; UI.listing_target = 0; }
@@ -334,9 +337,9 @@ static void frame(void) {
         if (ea && S.frames >= atoi(ea)) {
             InstallState is;
             sysinstall_probe(&is);
-            fprintf(stderr, "SMOKE OK frames=%d view=%d dialog=%d ca=%d resolver=%d pf=%d\n",
+            fprintf(stderr, "SMOKE OK frames=%d view=%d dialog=%d ca=%d resolver=%d pf=%d pac=%d\n",
                     S.frames, (int)UI.view, (int)UI.dialog,
-                    is.ca_trusted, is.resolver_file, is.pf_anchor);
+                    is.ca_trusted, is.resolver_file, is.pf_anchor, is.pac_on);
             hook_exit(0);
         }
     }
@@ -550,6 +553,8 @@ sapp_desc sokol_main(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--demo")) S.demo = 1;
         else if (!strcmp(argv[i], "--background")) S.background = 1;
+        else if (!strncmp(argv[i], "--datacarriersize=", 18))
+            swl_set_datacarriersize(atoi(argv[i] + 18));
         else if (npos < 3) pos[npos++] = argv[i];
     }
     snprintf(S.coin, sizeof S.coin, "%s", pos[2] ? pos[2] : DEFAULT_COIN);

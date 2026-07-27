@@ -15,6 +15,18 @@
 #include <stdint.h>
 #include "signer.h"          // SignerKey (SwlReq.key)
 
+/* The longest name the chain accepts is SM_NAME_MAX = 32 bytes (protocol §3.1),
+ * so every in-app name buffer needs 32 + a NUL. These structs predate the cap
+ * moving from 20 to 32; sizing them at 24 silently TRUNCATED anything longer,
+ * which meant committing and claiming a different name than the user typed. */
+#ifndef PEP_NAME_CAP
+#define PEP_NAME_CAP 33
+#endif
+#ifndef PEP_NAMES_MAX
+#define PEP_NAMES_MAX 64        /* ops.h has the doc — the batch/model cap */
+#endif
+
+
 // ── identity: the HD wallet ───────────────────────────────────────────────────
 typedef struct {
     int     ok;
@@ -71,6 +83,17 @@ int wallet_h160_addr(const uint8_t h160[20], char *out, size_t cap);
 // Mirrors wallet.c's MAX_INS (compile-checked in wallet.c).
 #define SWL_MAX_INS 16
 
+// ── relay data-carrier policy (--datacarriersize, default 83 script bytes) ────
+// Bounds what this wallet BUILDS so every tx is forwardable by default-config
+// peers; consensus accepts up to the §6 ceiling once mined. The flag budgets
+// are min(consensus, relay) — at the default they are 71 (renew/release) and
+// 51 (transfer), i.e. the historical 80-byte-payload numbers.
+void swl_set_datacarriersize(int script_bytes);
+int  swl_datacarriersize(void);
+int  swl_payload_max(void);          // largest payload the policy relays
+int  swl_flags_budget_renew(void);   // §3.5 RENEW/RELEASE flag bytes
+int  swl_flags_budget_xfer(void);    // §3.6 TRANSFER flag bytes
+
 typedef struct { uint8_t txid[32]; uint32_t vout; } SwlOutpoint;
 typedef struct { uint8_t txid[32]; uint32_t vout; int64_t value; } SwlSpendable;
 
@@ -81,7 +104,7 @@ typedef enum {
     SWL_TRANSFER,   // §3.6 gift: names[]/nnames selective bitmap; nnames == 0
                     // is the bare all-form (EVERY unlocked name) → to160
     SWL_SELL,       // §3.7 open listing                  → name, price, window_s
-    SWL_RELEASE,    // §3.6 selective bitmap release      → names[]/nnames (1..16 bits, one tx)
+    SWL_RELEASE,    // §3.6 selective bitmap release      → names[]/nnames (1..PEP_NAMES_MAX bits, one tx)
     SWL_RESERVE,    // §3.7 deposit both 0.5% legs        → name
     SWL_SETTLE,     // §3.7 pay the remainder             → name
     SWL_PAY,        // §3.7 pay a directed offer in full  → name
@@ -119,15 +142,15 @@ typedef struct {
     uint8_t     target[32];     // VOTE target txid (internal byte order)
     uint32_t    vout;           // VOTE target output
     int         up;             // VOTE direction
-    char        name[24];       // CLAIM/SELL/RESERVE/SETTLE/PAY/OFFER
+    char        name[PEP_NAME_CAP];       // CLAIM/SELL/RESERVE/SETTLE/PAY/OFFER
     uint64_t    price;          // SELL/OFFER price, koinu
     uint32_t    window_s;       // SELL listing window (0 = the 5 h floor)
 
-    // §3.5 bitmap batches: RELEASE always uses this list (1..16 names, one
-    // tx); RENEW and TRANSFER use it for their SELECTIVE forms — nnames == 0
+    // §3.5 bitmap batches: RELEASE always uses this list (1..PEP_NAMES_MAX
+    // names, one tx); RENEW and TRANSFER use it for their SELECTIVE forms — nnames == 0
     // is the bare all-form (renew: water-fill the whole set; transfer: gift
     // every unlocked name).
-    char        names[16][24];
+    char        names[PEP_NAMES_MAX][PEP_NAME_CAP];
     int         nnames;
 } SwlReq;
 

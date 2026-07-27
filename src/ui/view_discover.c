@@ -173,8 +173,11 @@ void view_discover(struct nk_context *ctx, struct nk_rect area) {
     }
 
     const InstallState *is = inst_state();
-    int web_ready = M.web.running && M.dns.resolver_running &&
-                    is->ca_trusted && is->resolver_file && is->pf_anchor;
+    // the PAC route needs no DNS (CONNECT carries the literal name); the
+    // legacy route needs the resolver thread + /etc/resolver + pf
+    int web_ready = M.web.running && is->ca_trusted &&
+                    (is->pac_on ||
+                     (M.dns.resolver_running && is->resolver_file && is->pf_anchor));
     // favicon fetches ride the DANE proxy — only meaningful once it's up
     if (!M.demo && M.web.running) favicon_boot();
 

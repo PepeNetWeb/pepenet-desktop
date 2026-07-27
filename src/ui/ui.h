@@ -17,6 +17,7 @@
 #include "../model.h"
 
 #include <stddef.h>
+#include <string.h>
 
 // per-tx network fee shown in dialogs, koinu — model_fee_k(): the relay floor
 // (0.001) in demo / while syncing, the engine's recent-window Q3 quote live
@@ -91,7 +92,9 @@ typedef struct {
     int     sell_days;
 
     // names screen
-    unsigned sel_mask;              // checkbox selection
+    uint8_t sel_mask[(PEP_NAMES_MAX + 7) / 8];   // checkbox selection — one
+                                    // bit per model row (408 rows > a u64;
+                                    // access via the ui_sel_* helpers below)
     int renew_sel;                  // batch renew scope: 1 = the selection
                                     // (selective bitmap), 0 = whole set (bare)
     int name_expanded;              // row with single-actions open, -1 none
@@ -156,6 +159,12 @@ typedef struct {
 } Ui;
 
 extern Ui UI;
+
+// ── checkbox-selection bitmap helpers (sel_mask spans PEP_NAMES_MAX bits) ────
+static inline int  ui_sel_get(int i)    { return (UI.sel_mask[i >> 3] >> (i & 7)) & 1; }
+static inline void ui_sel_set(int i)    { UI.sel_mask[i >> 3] |= (uint8_t)(1u << (i & 7)); }
+static inline void ui_sel_toggle(int i) { UI.sel_mask[i >> 3] ^= (uint8_t)(1u << (i & 7)); }
+static inline void ui_sel_clear(void)   { memset(UI.sel_mask, 0, sizeof UI.sel_mask); }
 
 void ui_frame(struct nk_context *ctx, float W, float H);
 float app_px_scale(void);          // logical→device pixel factor (main.c)

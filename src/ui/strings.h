@@ -115,6 +115,7 @@
     X(S_FOOT_PROXY_DOWN,    "proxy down") \
     X(S_FOOT_IDLE,          "idle") \
     X(S_FOOT_INCOMING_FMT,  "\xE2\x86\x93 %s incoming") \
+    X(S_FOOT_UPDATE_FMT,    "\xE2\x86\x91 %s %s is out \xC2\xB7 click to get it on GitHub") \
     /* ── shared across view_screens.c screens ── */ \
     X(S_SCR_NO_WALLET,          "no wallet yet") \
     X(S_SCR_NO_WALLET_SUB,      "the seed ceremony arrives with the wallet milestone") \
@@ -236,6 +237,7 @@
     X(S_SET_PRESENT,            "present") \
     X(S_SET_MISSING,            "missing") \
     X(S_SET_PORTREDIR,          "port redirect :443\xE2\x86\x92:" APP_PROXY_PORT_S) \
+    X(S_SET_PACROUTE,           "browser proxy (PAC)") \
     X(S_SET_CONFIGURED,         "configured") \
     X(S_SET_NOT_CONFIGURED,     "not configured") \
     X(S_SET_ENABLE_WEB,         "Enable web access\xE2\x80\xA6") \
@@ -258,6 +260,9 @@
     X(S_SET_DATA_CHANGE,        "Change location\xE2\x80\xA6") \
     X(S_SET_DATA_MOVED_FMT,     "data location set to %s \xE2\x80\x94 restart to use it " \
                                 "(a fresh sync starts there)") \
+    X(S_SET_ABOUT_HDR,          "ABOUT") \
+    X(S_SET_VERSION,            "version") \
+    X(S_SET_UPDATE_FMT,         "%s is out \xC2\xB7 get it on GitHub") \
     /* ── Peers screen (view_peers.c; reached from the balance dropdown) ── */ \
     X(S_PEERS_TITLE,        "Peers") \
     X(S_PEERS_EMPTY_DEMO,   "peer data is live (demo has none)") \
@@ -385,6 +390,8 @@
     X(S_DLG_BRENEW_WHY_NONE,    "nothing renewable in the selection") \
     X(S_DLG_BRENEW_TITLE_FMT,   "renew %d name%s") \
     X(S_DLG_BRENEW_CAP_NOTE,    "\xE2\x86\x92 365d cap") \
+    X(S_DLG_REACH_FMT,          "one tx reaches your first %d names \xC2\xB7 80-byte relay limit") \
+    X(S_NAMES_CAPPED_FMT,       "showing your first %d names \xE2\x80\x94 renew-all still covers every name you own") \
     X(S_DLG_BRENEW_PLUSD_FMT,   "+%dd") \
     X(S_DLG_BRENEW_TOTAL_FMT,   "total · %d name%s") \
     X(S_DLG_BRENEW_OK_FMT,      "Renew all %d") \
@@ -478,6 +485,8 @@
     X(S_DLG_DNSREC_ERR_SRV,     "SRV rdata is raw hex here (wire format)") \
     X(S_DLG_DNSREC_ERR_SSHFP,   "use: <algo> <fptype> <hex>") \
     X(S_DLG_DNSREC_ERR_HEX,     "expects hex rdata") \
+    X(S_DLG_DNSREC_ERR_RELHOST_FMT, "hosts are relative — drop the \"" APP_DOT_TLD "\" (@ is %s" APP_DOT_TLD " itself)") \
+    X(S_DLG_DNSREC_ERR_CNAME_IP, "that's an IP address — use an A record instead") \
     X(S_DLG_DNSREC_MORE,        "more…") \
     X(S_DLG_DNSREC_HOST_PH,     "@ (apex) or a sub") \
     X(S_DLG_DNSREC_TXT_PH,      "\"text\"") \

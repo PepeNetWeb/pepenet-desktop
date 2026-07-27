@@ -29,6 +29,37 @@
 
 #include <stdint.h>
 
+/* The longest name the chain accepts is SM_NAME_MAX = 32 bytes (protocol §3.1),
+ * so every in-app name buffer needs 32 + a NUL. These structs predate the cap
+ * moving from 20 to 32; sizing them at 24 silently TRUNCATED anything longer,
+ * which meant committing and claiming a different name than the user typed. */
+#ifndef PEP_NAME_CAP
+#define PEP_NAME_CAP 33
+#endif
+
+/* The app-wide owned-set working cap: the static ceiling for the model
+ * snapshot arrays (model.h), one batch intent (wallet.h SwlReq.names), and
+ * the selection bitmap (ui.h sel_mask, one bit per row). 408 = the §3.6
+ * selective-TRANSFER reach at the DEFAULT relay policy (datacarriersize 83 →
+ * 80-byte payload → 51 flag bytes × 8) — the smallest per-op reach, so every
+ * displayed name stays batch-operable in one default-relay tx. The RUNTIME
+ * cap (ops_names_cap) derives from the live --datacarriersize and clamps
+ * here; consensus reach is far larger (§6) but the arrays stay relay-sized.
+ * ops.c static-asserts the derivation. */
+#ifndef PEP_NAMES_MAX
+#define PEP_NAMES_MAX 408
+#endif
+
+/* Single-tx reach of the §3.5/§3.6 bitmap ops under the CURRENT relay policy
+ * (min(consensus §6, --datacarriersize)); at the default: 568 renew/release,
+ * 408 transfer. The UI displays these; wallet.c enforces them at build. */
+int ops_reach_renew(void);
+int ops_reach_transfer(void);
+/* The working owned-set cap: min(ops_reach_transfer(), PEP_NAMES_MAX), ≥ 1.
+ * model.c snapshots this many names; the batch entry guards use it. */
+int ops_names_cap(void);
+
+
 typedef enum { OPS_IDLE, OPS_BUSY, OPS_DONE, OPS_FAIL } OpsPhase;
 
 typedef struct {
@@ -63,7 +94,7 @@ int64_t ops_balance_delta(void);
 // Names in the §3.2 commit→claim pipeline (queued, commit in flight, or
 // parked for the claim), deduped — the Names list shows them as CLAIMING
 // until the claim folds into the projection. Returns the count.
-int ops_claiming(char (*out)[24], int max);
+int ops_claiming(char (*out)[PEP_NAME_CAP], int max);
 
 // What's queued or in flight for a name — the UI's action-gating matrix
 // (release/transfer pending freeze the name; sell/offer pending keep renew).
@@ -86,18 +117,18 @@ int ops_send(const uint8_t to160[20], int64_t amount, int sweep);
 int ops_claim(const char *name, int64_t rent);      // commit now, claim auto
 int ops_renew(int64_t rent);                        // §3.5 bare: water-fills ALL names
 // §3.5 selective renew: rent water-fills only these names (one bitmap tx)
-int ops_renew_sel(const char (*names)[24], int n, int64_t rent);
+int ops_renew_sel(const char (*names)[PEP_NAME_CAP], int n, int64_t rent);
 int ops_transfer(const uint8_t to160[20]);          // §3.6 bare: ALL unlocked names
 // §3.6 selective transfer: ONLY these names move (one bitmap tx, one fee) —
 // what the per-name transfer button means
-int ops_transfer_sel(const char (*names)[24], int n, const uint8_t to160[20]);
+int ops_transfer_sel(const char (*names)[PEP_NAME_CAP], int n, const uint8_t to160[20]);
 int ops_sell(const char *name, uint64_t price, uint32_t window_s);
 // §3.7 SELL_TO: directed offer at price; the named buyer has the fixed 2 h
 // window to PAY. Fee-only; the name movement-locks (renew still works).
 int ops_offer(const char *name, const uint8_t to160[20], uint64_t price);
 int ops_release(const char *name);
 // §3.6 batch release: 1..16 names leave in ONE bitmap tx (one fee)
-int ops_release_multi(const char (*names)[24], int n);
+int ops_release_multi(const char (*names)[PEP_NAME_CAP], int n);
 // §3.7 buy/reclaim phase 1: the settle parks and auto-fires when the reserve
 // folds with us as buyer — the dialog gates on funding the WHOLE price + 2
 // fees, so the parked settle can always build.

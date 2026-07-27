@@ -11,6 +11,7 @@
 
 #include "dnsnet.h"         // DnsStatus — the dns plane's 1 Hz snapshot
 #include "webproxy.h"       // WebStatus — the DANE proxy's 1 Hz snapshot
+#include "ops.h"            // PEP_NAMES_MAX — the owned-set working cap
 
 // per-name byte budget of the DNS overlay (meld §5: the durable 1 yr plane) —
 // zone-editor gauges read against this once the dns embed lands
@@ -63,10 +64,12 @@ typedef struct {
     char    address[64];
     int     has_wallet;
 
-    MyName names[16];
+    MyName names[PEP_NAMES_MAX];
     int    nnames;
+    int    names_capped;        // snapshot filled: the wallet owns MORE names
+                                // than the model shows (view_names footnotes it)
 
-    Listing listings[16];
+    Listing listings[PEP_NAMES_MAX];
     int     nlist;
 
     OfferToMe offers[4];

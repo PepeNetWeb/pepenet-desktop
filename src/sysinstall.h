@@ -1,18 +1,23 @@
 // sysinstall.h — the system-level web install (meld §4): the one-time,
 // consented, privileged wiring that lets a stock browser reach .pepe with a
-// green lock. Three pieces, two privilege levels:
+// green lock. The pieces, two privilege levels:
 //   • root CA trusted in the login keychain — UNPRIVILEGED (trust_install;
 //     the keychain GUI auth IS the consent), done in-process;
-//   • /etc/resolver/pep + pf rdr :443→:8443 — PRIVILEGED, done by
-//     packaging/install-helper.sh via `osascript … with administrator privileges`.
-// Uninstall reverses all three. Quit leaves them planted but inert (dead ports).
+//   • system PAC → webproxy's front door (the PRIMARY browser route: no DNS,
+//     no :443, VPN/DoH-proof) + /etc/resolver/pep + best-effort pf rdr
+//     :443→:8443 — PRIVILEGED, done by packaging/install-helper.sh via
+//     `osascript … with administrator privileges`.
+// Uninstall reverses all of it. Quit leaves them planted but inert (dead ports
+// = browsers fall back to DIRECT).
 #ifndef DNET_SYSINSTALL_H
 #define DNET_SYSINSTALL_H
 
 typedef struct {
     int ca_trusted;      // root CA present in the login keychain
-    int resolver_file;   // /etc/resolver/pep exists
-    int pf_anchor;       // pf rdr :443→:8443 loaded
+    int resolver_file;   // /etc/resolver/pep exists (win: NRPT rule)
+    int pf_anchor;       // pf rdr :443→:8443 loaded (win: consent marker)
+    int pac_on;          // system proxy autoconfig points at our front door —
+                         // the DNS-free browser route (webproxy's PAC + CONNECT)
 } InstallState;
 
 // Cheap probes (stat + `security`/`pfctl` shellouts). Cache the result ~5 s in

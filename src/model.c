@@ -31,9 +31,9 @@ static void refresh_claiming(void) {
     for (int i = 0; i < M.nnames; i++)
         if (M.names[i].st != NS_CLAIMING) M.names[n++] = M.names[i];
     M.nnames = n;
-    char cl[8][24];
+    char cl[8][PEP_NAME_CAP];
     int nc = ops_claiming(cl, 8);
-    for (int i = 0; i < nc && M.nnames < 16; i++) {
+    for (int i = 0; i < nc && M.nnames < PEP_NAMES_MAX; i++) {
         int have = 0;                   // claim just folded → the row is real now
         for (int j = 0; j < M.nnames && !have; j++)
             have = !strcmp(M.names[j].name, cl[i]);
@@ -89,8 +89,10 @@ void model_refresh_pending(void) {
 // names/market rows owned by (or aimed at) our address, straight off the
 // projection. Runs when the tip moves — ownership only changes with blocks.
 static void refresh_names_from_chain(void) {
-    EngineName rows[16];
-    int n = engine_my_names(WLT.h160, rows, 16);
+    EngineName rows[PEP_NAMES_MAX];
+    int cap = ops_names_cap();              // relay-policy working cap (≤ PEP_NAMES_MAX)
+    int n = engine_my_names(WLT.h160, rows, cap);
+    M.names_capped = n == cap;              // full buffer ⇒ the set may be larger
     M.nnames = 0;
     for (int i = 0; i < n; i++) {
         MyName *m = &M.names[M.nnames++];
@@ -126,9 +128,9 @@ static void refresh_names_from_chain(void) {
     // the open marketplace: every §3.7 listing across the projection (browse +
     // bid), our OWN listings included and flagged. Reserved rows carry who won,
     // so a name reserved by us shows Settle and one reserved by another blocks.
-    n = engine_listings(rows, 16);
+    n = engine_listings(rows, PEP_NAMES_MAX);
     M.nlist = 0;
-    for (int i = 0; i < n && M.nlist < 16; i++) {
+    for (int i = 0; i < n && M.nlist < PEP_NAMES_MAX; i++) {
         Listing *l = &M.listings[M.nlist++];
         memset(l, 0, sizeof *l);
         snprintf(l->name, sizeof l->name, "%s", rows[i].name);
@@ -145,7 +147,7 @@ static void refresh_names_from_chain(void) {
         }
     }
     // directed offers aimed at me (SELL_TO) → the pay-to-settle cards
-    n = engine_market_mine(WLT.h160, rows, 16);
+    n = engine_market_mine(WLT.h160, rows, PEP_NAMES_MAX);
     M.noffers = 0;
     for (int i = 0; i < n; i++)
         if (rows[i].st == SM_OFFERED && M.noffers < 4) {

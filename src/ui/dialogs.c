@@ -27,6 +27,9 @@
 
 #include "../../vendor/sokol/sokol_app.h"
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -151,7 +154,7 @@ static void fee_total(struct nk_context *ctx, float x, float xr, float *y,
 static void names_remove(int idx) {
     for (int i = idx; i < M.nnames - 1; i++) M.names[i] = M.names[i + 1];
     if (M.nnames > 0) M.nnames--;
-    UI.sel_mask = 0;
+    ui_sel_clear();
 }
 
 static int64_t days_remaining(int64_t expiry) {
@@ -235,7 +238,7 @@ static void d_renew(struct nk_context *ctx, struct nk_rect screen) {
     if (act == 1) close_dlg();
     if (act == 2 && !why) {
         if (!M.demo) {
-            char one[1][24];            // §3.5 selective, one flag: the rent
+            char one[1][PEP_NAME_CAP];            // §3.5 selective, one flag: the rent
             snprintf(one[0], sizeof one[0], "%s", n->name);
             ops_renew_sel(one, 1, rent);// water-fills THIS name only
         } else {
@@ -251,10 +254,10 @@ static void d_renew(struct nk_context *ctx, struct nk_rect screen) {
 // selection bar it's the SELECTIVE bitmap (rent water-fills exactly the
 // chosen names); from "renew all names" it's the bare whole-set water-fill.
 static void d_batch_renew(struct nk_context *ctx, struct nk_rect screen) {
-    int idxs[16], nsel = 0;
+    int idxs[PEP_NAMES_MAX], nsel = 0;
     int sel_scope = M.demo || UI.renew_sel;                // else: the whole set
     int64_t total_cost = 0, total_days = 0;
-    for (int i = 0; i < M.nnames && i < 16; i++) {
+    for (int i = 0; i < M.nnames && i < PEP_NAMES_MAX; i++) {
         if (M.names[i].st == NS_CLAIMING) continue;        // not on-chain yet
         if (!M.demo && M.names[i].pending) {
             int p = M.names[i].pending;                    // leaving the set before
@@ -263,7 +266,7 @@ static void d_batch_renew(struct nk_context *ctx, struct nk_rect screen) {
             if (sel_scope || leaves) continue;             // this renew folds → skip;
         }                                                  // a queued sell still renews
         if (sel_scope) {
-            if (!(UI.sel_mask & (1u << i))) continue;
+            if (!ui_sel_get(i)) continue;
             if (M.names[i].st == NS_RESERVED) continue;
         }
         int add = 365 - (int)days_remaining(M.names[i].expiry);
@@ -283,7 +286,7 @@ static void d_batch_renew(struct nk_context *ctx, struct nk_rect screen) {
     else why = why_pay(total);
     float w = 364, pad = 18, cw = w - 2 * pad;
     float list_h = (float)(nsel < 3 ? nsel : 3) * 34 + 2;
-    float h = pad + 30 + 10 + list_h + 14 + 18 + 12 + 26 + why_h(why) + 12 + 38 + pad;
+    float h = pad + 30 + 10 + list_h + 14 + 18 + 12 + 26 + 16 + why_h(why) + 12 + 38 + pad;
     struct nk_rect r = dlg_begin(ctx, screen, w, h, C_BORDER);
     float x = r.x + pad, xr = r.x + w - pad, y = r.y + pad;
     char b[64], t[80];
@@ -324,6 +327,9 @@ static void d_batch_renew(struct nk_context *ctx, struct nk_rect screen) {
     dk_text(ctx, F_SM13, x, y, C_TEXT, t);
     fmt_amount4_sp(b, sizeof b, total);
     dk_text_r(ctx, F_SM14, xr, y - 1, C_ACCENT, b);
+    y += 22;
+    snprintf(t, sizeof t, TR(S_DLG_REACH_FMT), ops_reach_renew());
+    dk_text(ctx, F_SM10, x, y, C_GHOST, t);
 
     snprintf(t, sizeof t, TR(S_DLG_BRENEW_OK_FMT), nsel);
     float by = r.y + h - pad - 38;
@@ -333,7 +339,7 @@ static void d_batch_renew(struct nk_context *ctx, struct nk_rect screen) {
     if (act == 2 && !why) {
         if (!M.demo) {
             if (UI.renew_sel) {                 // §3.5 selective: just the picks
-                char names[16][24];
+                char names[PEP_NAMES_MAX][PEP_NAME_CAP];
                 for (int k = 0; k < nsel; k++)
                     snprintf(names[k], sizeof names[k], "%s", M.names[idxs[k]].name);
                 ops_renew_sel(names, nsel, rent);
@@ -348,7 +354,7 @@ static void d_batch_renew(struct nk_context *ctx, struct nk_rect screen) {
             }
             M.balance -= total;
         }
-        UI.sel_mask = 0;
+        ui_sel_clear();
         close_dlg();
     }
 }
@@ -559,7 +565,7 @@ static void d_transfer(struct nk_context *ctx, struct nk_rect screen) {
     if (act == 2 && !why) {
         if (!M.demo) {
             uint8_t to[20];
-            char one[1][24];
+            char one[1][PEP_NAME_CAP];
             snprintf(one[0], sizeof one[0], "%s", n->name);
             if (wallet_addr_decode(UI.send_to, to)) ops_transfer_sel(one, 1, to);
         } else {
@@ -648,9 +654,9 @@ static void d_release(struct nk_context *ctx, struct nk_rect screen) {
 
 // ── batch release — the picks leave in ONE §3.5 bitmap tx, one fee (3a) ──────
 static void d_batch_release(struct nk_context *ctx, struct nk_rect screen) {
-    int idxs[16], k = 0;
-    for (int i = 0; i < M.nnames && i < 16; i++) {
-        if (!(UI.sel_mask & (1u << i))) continue;
+    int idxs[PEP_NAMES_MAX], k = 0;
+    for (int i = 0; i < M.nnames && i < PEP_NAMES_MAX; i++) {
+        if (!ui_sel_get(i)) continue;
         MyName *n = &M.names[i];
         if (n->st != NS_OWNED || n->pending) continue;  // movement locks + the matrix
         idxs[k++] = i;
@@ -701,7 +707,7 @@ static void d_batch_release(struct nk_context *ctx, struct nk_rect screen) {
     if (act == 1) close_dlg();
     if (act == 2 && !why) {
         if (!M.demo) {
-            char names[16][24];
+            char names[PEP_NAMES_MAX][PEP_NAME_CAP];
             for (int j = 0; j < k; j++)
                 snprintf(names[j], sizeof names[j], "%s", M.names[idxs[j]].name);
             ops_release_multi(names, k);
@@ -710,7 +716,7 @@ static void d_batch_release(struct nk_context *ctx, struct nk_rect screen) {
                 names_remove(idxs[j]);
             M.balance -= UI_FEE_K;
         }
-        UI.sel_mask = 0;
+        ui_sel_clear();
         close_dlg();
     }
 }
@@ -720,9 +726,9 @@ static void d_batch_release(struct nk_context *ctx, struct nk_rect screen) {
 // Gift-only and irreversible — the note says so before the button goes live.
 static void d_batch_transfer(struct nk_context *ctx, struct nk_rect screen) {
     const char *note = TR(S_DLG_BTRANSFER_NOTE);
-    int idxs[16], k = 0;
-    for (int i = 0; i < M.nnames && i < 16; i++) {
-        if (!(UI.sel_mask & (1u << i))) continue;
+    int idxs[PEP_NAMES_MAX], k = 0;
+    for (int i = 0; i < M.nnames && i < PEP_NAMES_MAX; i++) {
+        if (!ui_sel_get(i)) continue;
         MyName *n = &M.names[i];
         if (n->st != NS_OWNED || n->pending) continue;  // movement locks + the matrix
         idxs[k++] = i;
@@ -742,7 +748,7 @@ static void d_batch_transfer(struct nk_context *ctx, struct nk_rect screen) {
     float list_h = (float)(k < 5 ? k : 5) * 34 + 2;
     float w = 344, pad = 18, cw = w - 2 * pad;
     float body_h = dk_wrap(NULL, F_PH14, 0, 0, cw, C_DIM, note, 1.35f);
-    float h = pad + 30 + 8 + list_h + 12 + 20 + 40 + 12 + body_h + 14 + 20
+    float h = pad + 30 + 8 + list_h + 12 + 20 + 40 + 12 + body_h + 14 + 20 + 16
             + why_h(why) + 12 + 38 + pad;
     struct nk_rect rr = dlg_begin(ctx, screen, w, h, C_BORDER);
     float x = rr.x + pad, xr = rr.x + w - pad, y = rr.y + pad;
@@ -782,6 +788,8 @@ static void d_batch_transfer(struct nk_context *ctx, struct nk_rect screen) {
     snprintf(fb, sizeof fb, "+%s", b);
     dk_hline(ctx, x, xr, y, C_BORDER);
     ui_kv_row(ctx, x, xr, y + 8, TR(S_DLG_FEE_ONETX), fb, C_GHOST, C_DIM);
+    snprintf(t, sizeof t, TR(S_DLG_REACH_FMT), ops_reach_transfer());
+    dk_text(ctx, F_SM10, x, y + 28, C_GHOST, t);
 
     snprintf(t, sizeof t, TR(S_DLG_BTRANSFER_OK_FMT), k);
     float by = rr.y + h - pad - 38;
@@ -791,7 +799,7 @@ static void d_batch_transfer(struct nk_context *ctx, struct nk_rect screen) {
     if (act == 2 && !why) {
         if (!M.demo) {
             uint8_t to[20];
-            char names[16][24];
+            char names[PEP_NAMES_MAX][PEP_NAME_CAP];
             for (int j = 0; j < k; j++)
                 snprintf(names[j], sizeof names[j], "%s", M.names[idxs[j]].name);
             if (wallet_addr_decode(UI.send_to, to)) ops_transfer_sel(names, k, to);
@@ -800,7 +808,7 @@ static void d_batch_transfer(struct nk_context *ctx, struct nk_rect screen) {
                 names_remove(idxs[j]);
             M.balance -= UI_FEE_K;
         }
-        UI.sel_mask = 0;
+        ui_sel_clear();
         close_dlg();
     }
 }
@@ -913,7 +921,7 @@ static void d_claim(struct nk_context *ctx, struct nk_rect screen) {
             // (ops_poll) and the name row arrives via the projection
             ops_claim(UI.claim_name, burn);
             close_dlg();
-        } else if (M.nnames < 16) {
+        } else if (M.nnames < PEP_NAMES_MAX) {
             MyName *n = &M.names[M.nnames++];
             memset(n, 0, sizeof *n);
             snprintf(n->name, sizeof n->name, "%s", UI.claim_name);
@@ -1006,7 +1014,7 @@ static void d_bid(struct nk_context *ctx, struct nk_rect screen) {
                 M.names[ex].st = NS_OWNED;
                 M.names[ex].list_price = 0;
                 M.names[ex].list_window_end = 0;
-            } else if (M.nnames < 16) {             // bought: the lease conveys
+            } else if (M.nnames < PEP_NAMES_MAX) {             // bought: the lease conveys
                 MyName *n = &M.names[M.nnames++];
                 memset(n, 0, sizeof *n);
                 snprintf(n->name, sizeof n->name, "%s", l->name);
@@ -1079,7 +1087,7 @@ static void d_settle(struct nk_context *ctx, struct nk_rect screen) {
                 M.names[ex].st = NS_OWNED;          // out of escrow, back to plain owned
                 M.names[ex].list_price = 0;
                 M.names[ex].list_window_end = 0;
-            } else if (M.nnames < 16) {
+            } else if (M.nnames < PEP_NAMES_MAX) {
                 MyName *n = &M.names[M.nnames++];
                 memset(n, 0, sizeof *n);
                 snprintf(n->name, sizeof n->name, "%s", l->name);
@@ -1167,7 +1175,7 @@ static void d_payoffer(struct nk_context *ctx, struct nk_rect screen) {
         if (!M.demo) {
             ops_payoffer(o->name);
         } else {
-            if (M.nnames < 16) {
+            if (M.nnames < PEP_NAMES_MAX) {
                 MyName *n = &M.names[M.nnames++];
                 memset(n, 0, sizeof *n);
                 snprintf(n->name, sizeof n->name, "%s", o->name);
@@ -1229,6 +1237,23 @@ static int dnsm_host_ok(const char *h) {
     return 1;
 }
 
+// The two foot-guns observed in live zones. Hosts are ZONE-RELATIVE: a host
+// typed as an FQDN ("gpt" APP_DOT_TLD in the gpt zone) charset-checks fine
+// but folds to gpt.pepe.gpt.pepe and never resolves — anything ending in the
+// TLD is unambiguously that mistake. And an IP typed as a CNAME/NS target
+// encodes as a perfectly legal dname ("216.24.57.1" → four labels) that no
+// resolver will ever chase — that value belongs in an A record.
+static int dnsm_host_is_fqdn(const char *h) {
+    size_t hl = strlen(h), tl = strlen(APP_DOT_TLD);
+    if (hl && h[hl - 1] == '.') hl--;      // one optional DNS root dot: "www.pepe."
+    return hl >= tl && strncasecmp(h + hl - tl, APP_DOT_TLD, tl) == 0;
+}
+static int dnsm_val_is_ip(const char *v) {
+    struct in_addr a4;
+    struct in6_addr a6;
+    return inet_pton(AF_INET, v, &a4) == 1 || inet_pton(AF_INET6, v, &a6) == 1;
+}
+
 static void d_dns_rec(struct nk_context *ctx, struct nk_rect screen) {
     int ni = ui_dns_pick_name();
     if (ni < 0) { close_dlg(); return; }
@@ -1246,11 +1271,14 @@ static void d_dns_rec(struct nk_context *ctx, struct nk_rect screen) {
     // validate: host charset, ttl digits, value through the REAL parser
     const char *label = (!UI.dnsm_host_len || !strcmp(UI.dnsm_host, "@"))
                         ? "@" : UI.dnsm_host;
-    int host_ok = dnsm_host_ok(UI.dnsm_host);
+    int host_fqdn = UI.dnsm_host_len > 0 && dnsm_host_is_fqdn(UI.dnsm_host);
+    int host_ok = dnsm_host_ok(UI.dnsm_host) && !host_fqdn;
     uint32_t ttlv = (uint32_t)atoi(UI.dnsm_ttl_len ? UI.dnsm_ttl : "0");
     int ttl_ok = ttlv > 0;
+    int cname_ip = (tcode == DNS_CNAME || tcode == DNS_NS) &&
+                   UI.dnsm_val_len > 0 && dnsm_val_is_ip(UI.dnsm_val);
     zone_rec rec;
-    int val_ok = UI.dnsm_val_len > 0 && host_ok &&
+    int val_ok = UI.dnsm_val_len > 0 && host_ok && !cname_ip &&
                  zone_build_rec(label, DNSM_TYPES[tsel].n, ttlv ? ttlv : 3600,
                                 UI.dnsm_val, &rec) == 0 && rec.rdlen > 0;
     int can = val_ok && ttl_ok && !M.demo;
@@ -1275,7 +1303,7 @@ static void d_dns_rec(struct nk_context *ctx, struct nk_rect screen) {
     int val_err = UI.dnsm_val_len > 0 && !val_ok;
     float h = pad + 34                       // title
             + 16 + chiprows_h                // TYPE
-            + 16 + 22 + 34                   // HOST/TTL labels + fields
+            + 16 + 22 + 34 + (host_fqdn ? 16 : 0) // HOST/TTL (+error line)
             + 16 + 22 + 34 + (val_err ? 16 : 0)   // VALUE (+error line)
             + 10 + 40 + 18                   // PREVIEW + byte line
             + 12 + 38 + pad;                 // buttons
@@ -1345,7 +1373,13 @@ static void d_dns_rec(struct nk_context *ctx, struct nk_rect screen) {
         dk_card(ctx, tf, 8, C_INPUT, ttl_ok || !UI.dnsm_ttl_len ? C_BORDER : C_RED);
         ui_edit(ctx, nk_rect(tf.x + 6, tf.y + 2, tf.w - 12, 26), UI.dnsm_ttl,
                 &UI.dnsm_ttl_len, sizeof UI.dnsm_ttl - 1, "3600", F_SM13, 1);
-        y += 34 + 16;
+        y += 34;
+        if (host_fqdn) {
+            snprintf(b, sizeof b, TR(S_DLG_DNSREC_ERR_RELHOST_FMT), apex);
+            dk_text(ctx, F_SM10, x, y - 2, C_RED, b);
+            y += 16;
+        }
+        y += 16;
     }
 
     // VALUE + inline error
@@ -1362,7 +1396,8 @@ static void d_dns_rec(struct nk_context *ctx, struct nk_rect screen) {
             dk_text_r(ctx, F_SM13, vf.x + vf.w - 10, y + 7, C_RED, "\xE2\x9C\x95");
         y += 34;
         if (val_err) {
-            dk_text(ctx, F_SM10, x, y - 2, C_RED, dnsm_err_for(tcode));
+            dk_text(ctx, F_SM10, x, y - 2, C_RED,
+                    cname_ip ? TR(S_DLG_DNSREC_ERR_CNAME_IP) : dnsm_err_for(tcode));
             y += 16;
         }
     }

@@ -25,6 +25,10 @@
 #define APP_BUNDLE_ID   "com.pepenet.app"  // launch-agent label; CMake's
                                                 // MACOSX_BUNDLE_GUI_IDENTIFIER
                                                 // must stay in sync
+// where releases live — the notify-only update check (update.c) resolves
+// <url>/latest and the footer notice sends the user there. NEVER a download
+// endpoint: the app fetches nothing executable, the human does the install.
+#define APP_RELEASES_URL "https://github.com/PepeNetWeb/pepenet-desktop/releases"
 
 // ── storage ──────────────────────────────────────────────────────────────────
 // The per-user data directory NAME (a dotfolder under $HOME by default):
@@ -45,10 +49,13 @@
                                         // (chain_topup) keeps ~8 outbound peers instead;
                                         // pin an explicit upstream with conf `peer=` if
                                         // ever needed.
-#define APP_CHAIN_AGENT IDX_DNET_MARK "desktop:0.1/"  // our P2P subver — the
-                                        // IDX_DNET_MARK prefix ("/pepenet-",
-                                        // CMakeLists) is the mesh's discovery
-                                        // mark (peer-discovery design)
+#define APP_CHAIN_AGENT IDX_DNET_MARK "desktop:" PEPENET_VERSION "/"
+                                        // our P2P subver — the IDX_DNET_MARK
+                                        // prefix ("/pepenet-", CMakeLists) is
+                                        // the mesh's discovery mark (peer-
+                                        // discovery design); the version tail
+                                        // (CMake PEPENET_VERSION) makes every
+                                        // peer's build visible on the wire
 
 // ── web plane ────────────────────────────────────────────────────────────────
 #define APP_TLD         "pepe"          // the DNS suffix: <name>.pepe

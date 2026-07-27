@@ -6,12 +6,19 @@
 #   cmake + ninja + gcc   (MSYS2 UCRT64: C:\...\msys64\ucrt64\bin)
 #   candle.exe/light.exe  (WiX 3.x binaries)
 param(
-    [string]$Version = "0.1.2",
+    [string]$Version = "",          # default: PEPENET_VERSION from CMakeLists.txt
     [string]$WixDir = "",           # dir holding candle.exe/light.exe
     [string]$ToolchainBin = ""      # MSYS2 ucrt64\bin to prepend to PATH
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot     # repo root (this file is packaging\)
+
+if (-not $Version) {
+    $m = [regex]::Match((Get-Content (Join-Path $root 'CMakeLists.txt') -Raw),
+                        'set\(PEPENET_VERSION "([^"]+)"')
+    if (-not $m.Success) { throw "PEPENET_VERSION not found in CMakeLists.txt" }
+    $Version = $m.Groups[1].Value
+}
 
 if ($ToolchainBin) { $env:PATH = "$ToolchainBin;$env:PATH" }
 $candle = if ($WixDir) { Join-Path $WixDir 'candle.exe' } else { 'candle.exe' }

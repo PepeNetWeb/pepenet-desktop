@@ -9,6 +9,7 @@
 #include "../dirscan.h"
 #include "../sysinstall.h"
 #include "../platform.h"     // data dir, folder picker, config seam
+#include "../update.h"       // build version + the notify-only release check
 
 #include "../../vendor/sokol/sokol_app.h"
 #include "../../vendor/sokol/sokol_gfx.h"
@@ -83,7 +84,7 @@ void view_names(struct nk_context *ctx, struct nk_rect area) {
     int nsel = 0, nren = 0, nrel = 0;           // selected vs renewable vs releasable
     int64_t est = 0;
     for (int i = 0; i < M.nnames; i++)
-        if (UI.sel_mask & (1u << i)) {
+        if (ui_sel_get(i)) {
             MyName *sn = &M.names[i];
             nsel++;
             if (sn->st == NS_OWNED && !sn->pending) nrel++;
@@ -100,7 +101,7 @@ void view_names(struct nk_context *ctx, struct nk_rect area) {
     for (int i = 0; i < M.nnames; i++) {
         MyName *n = &M.names[i];
         if (UI.names_q_len && !strstr(n->name, UI.names_q)) continue;
-        int sel = (UI.sel_mask >> i) & 1;
+        int sel = ui_sel_get(i);
         int claiming = n->st == NS_CLAIMING;
         int expanded = !claiming && UI.name_expanded == i;
         int reserved = n->st == NS_RESERVED;
@@ -125,7 +126,7 @@ void view_names(struct nk_context *ctx, struct nk_rect area) {
             } else {
                 dk_line_rect(ctx, cb, 5, C_GHOST);
             }
-            if (pickable && dk_click(ctx, cb)) UI.sel_mask ^= 1u << i;
+            if (pickable && dk_click(ctx, cb)) ui_sel_toggle(i);
         }
 
         // name + accent TLD suffix (9b)
@@ -286,6 +287,11 @@ void view_names(struct nk_context *ctx, struct nk_rect area) {
         dk_text_c(ctx, F_PH18, r, C_DIM,
                   M.demo ? TR(S_NAMES_EMPTY_DEMO) : TR(S_NAMES_EMPTY));
     }
+    if (M.names_capped) {           // the snapshot filled: the set is larger
+        snprintf(b, sizeof b, TR(S_NAMES_CAPPED_FMT), ops_names_cap());
+        dk_text(ctx, F_SM10, x + 12, ry + 6, C_GHOST, b);
+        ry += 24;
+    }
     dk_scroll_end(ctx, &UI.sc_names, view, (ry + UI.sc_names.scroll) - view.y + 4, 0);
 
     // sticky selection bar (9b): count · clear · est · ··· overflow · Renew N
@@ -296,7 +302,7 @@ void view_names(struct nk_context *ctx, struct nk_rect area) {
         snprintf(b, sizeof b, TR(S_NAMES_NSEL_FMT), nsel);
         dk_text(ctx, F_PH16, bar.x + 16, bar.y + 17, C_TEXT, b);
         struct nk_rect clr = nk_rect(bar.x + 16 + dk_w(F_PH16, b) + 12, bar.y + 19, 44, 20);
-        if (dk_btn_col(ctx, clr, F_PH14, TR(S_NAMES_CLEAR), BTN_GHOST, C_GHOST)) UI.sel_mask = 0;
+        if (dk_btn_col(ctx, clr, F_PH14, TR(S_NAMES_CLEAR), BTN_GHOST, C_GHOST)) ui_sel_clear();
 
         snprintf(b, sizeof b, TR(S_NAMES_RENEW_N_FMT), nren);
         float rw = dk_w(F_PH16, b) + 40;
@@ -831,11 +837,19 @@ void view_settings(struct nk_context *ctx, struct nk_rect area) {
                   is->resolver_file ? C_DIM : C_GHOST);
         y += 22;
         ui_kv_row(ctx, x, area.x + area.w - 20, y,
+                  TR(S_SET_PACROUTE),
+                  is->pac_on ? TR(S_SET_CONFIGURED) : TR(S_SET_NOT_CONFIGURED), C_GHOST,
+                  is->pac_on ? C_DIM : C_GHOST);
+        y += 22;
+        ui_kv_row(ctx, x, area.x + area.w - 20, y,
                   TR(S_SET_PORTREDIR),
                   is->pf_anchor ? TR(S_SET_CONFIGURED) : TR(S_SET_NOT_CONFIGURED), C_GHOST,
                   is->pf_anchor ? C_DIM : C_GHOST);
         y += 30;
-        int fully = is->ca_trusted && is->resolver_file && is->pf_anchor;
+        // functional = CA trusted + either browser route (PAC is the primary;
+        // resolver+pf is the legacy pair). The button flips on the ensemble.
+        int fully = is->ca_trusted && is->resolver_file &&
+                    (is->pac_on || is->pf_anchor);
         struct nk_rect ib = nk_rect(x, y, 190, 30);
         if (UI.web_busy > 0) {
             ui_btn_disabled(ctx, ib, F_PH14, UI.web_note);
@@ -922,6 +936,27 @@ void view_settings(struct nk_context *ctx, struct nk_rect area) {
         if (data_note[0]) {
             dk_wrap(ctx, F_SM10, x, y, area.w - 40, C_ACCENT, data_note, 1.35f);
             y += 30;
+        }
+    }
+
+    // ── about ────────────────────────────────────────────────────────────────
+    y += 16;
+    dk_hline(ctx, x, area.x + area.w - 20, y, C_HAIR);
+    y += 12;
+    dk_text_sp(ctx, F_SM9, x, y, C_GHOST, TR(S_SET_ABOUT_HDR), 1);
+    y += 20;
+    ui_kv_row(ctx, x, area.x + area.w - 20, y, TR(S_SET_VERSION),
+              update_build_version(), C_GHOST, C_DIM);
+    y += 22;
+    {
+        char uver[32];
+        if (update_available(uver, sizeof uver)) {
+            snprintf(b, sizeof b, TR(S_SET_UPDATE_FMT), uver);
+            struct nk_rect ur = nk_rect(x, y, dk_w(F_SM10, b) + 8, 18);
+            dk_text(ctx, F_SM10, x, y, C_ACCENT, b);
+            if (dk_hot(ctx, ur)) sapp_set_mouse_cursor(SAPP_MOUSECURSOR_POINTING_HAND);
+            if (dk_click(ctx, ur)) platform_open_url(APP_RELEASES_URL "/latest");
+            y += 24;
         }
     }
     y += 16;
