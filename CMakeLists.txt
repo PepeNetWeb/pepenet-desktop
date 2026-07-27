@@ -22,8 +22,8 @@ cmake_minimum_required(VERSION 3.20)
 # 11.0, but the loader trusts the binary: "You cannot use this version of
 # pepenet with this version of macOS" on anything older than the build
 # machine) and builds host-arch only (arm64 — nothing for Intel Macs).
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING
-    "min macOS (Big Sur — the first arm64 release; matches the plist)")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING
+    "min macOS (Sonoma — vendored sokol's CADisplayLink swapchain needs 14; matches the plist)")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING
     "universal 2 binary for distribution")
 
