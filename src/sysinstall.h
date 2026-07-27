@@ -47,9 +47,23 @@ void sysinstall_loginitem_default(void);   // first boot: default ON (once)
 int  sysinstall_firefox_roots(void);
 
 // First-run consent marker (~/.pepenet/consent-<tld>): written when the user
-// answers the 9h card either way, so it shows exactly once. Settings keeps the
-// enable/uninstall pair for later visits.
+// answers the 9h card either way, so it shows exactly once.
 int  sysinstall_consent_seen(void);
 void sysinstall_consent_mark(void);
+
+// Web access as DESIRED STATE — the user owns one bit; the app reconciles
+// reality to it. -1 = never chosen (pre-flag installs migrate by probe
+// inference at boot), 0 = off, 1 = on. On + a rotted piece (new network
+// service lost the PAC, a VPN rewrote pf, an upgrade changed rule content) →
+// the consent card re-offers the one-prompt idempotent install; off → the
+// Settings toggle runs the uninstall once. No enable/uninstall button pair,
+// no partial-state archaeology for the user.
+int  sysinstall_web_wanted(void);
+void sysinstall_web_set(int on);
+
+// Start hidden (tray only) on every launch — the --background behavior as a
+// user setting instead of a login-agent argv detail.
+int  sysinstall_bgstart_state(void);
+void sysinstall_bgstart_set(int on);
 
 #endif

@@ -240,16 +240,21 @@
     X(S_SET_PACROUTE,           "browser proxy (PAC)") \
     X(S_SET_CONFIGURED,         "configured") \
     X(S_SET_NOT_CONFIGURED,     "not configured") \
-    X(S_SET_ENABLE_WEB,         "Enable web access\xE2\x80\xA6") \
+    X(S_SET_WEB_TOGGLE,         "web access") \
+    X(S_SET_WEB_TOGGLE_SUB,     "browsers on this machine resolve and open " \
+                                APP_DOT_TLD " sites") \
+    X(S_SET_REPAIR_WEB,         "Repair web access\xE2\x80\xA6") \
     X(S_SET_ENABLED_OK,         "enabled \xE2\x9C\x93") \
     X(S_SET_INSTALL_INC,        "install incomplete") \
-    X(S_SET_UNINSTALL_WEB,      "Uninstall web access") \
     X(S_SET_REMOVED_OK,         "removed \xE2\x9C\x93") \
     X(S_SET_UNINSTALL_INC,      "uninstall incomplete") \
     X(S_SET_STARTUP_HDR,        "STARTUP") \
     X(S_SET_LOGIN,              "launch at login") \
     X(S_SET_LOGIN_SUB,          "starts hidden in the tray \xE2\x80\x94 resolver + proxy serve " \
                                 APP_DOT_TLD " from login") \
+    X(S_SET_BGSTART,            "start in background") \
+    X(S_SET_BGSTART_SUB,        "every launch opens to the tray \xE2\x80\x94 no window " \
+                                "until you ask for one") \
     X(S_SET_PHRASE_HDR,         "RECOVERY PHRASE") \
     X(S_SET_BACKUP,             "backup") \
     X(S_SET_PHRASE_12,          "12-word recovery phrase") \
@@ -510,6 +515,7 @@
     X(S_DLG_SSLSUB_OK,          "Create") \
     /* ── first-run consent dialog (DLG_CONSENT) ── */ \
     X(S_DLG_CONSENT_TITLE,      "Access " APP_NET_LABEL "?") \
+    X(S_DLG_CONSENT_TITLE_FIX,  "Repair web access?") \
     X(S_DLG_CONSENT_PROMISE,    "this lets you visit " APP_DOT_TLD " websites. to do so, we:") \
     X(S_DLG_CONSENT_S1,         "Install the " APP_DOT_TLD " certificate") \
     X(S_DLG_CONSENT_S1_SUB,     "a local trustless certificate authority for " APP_DOT_TLD " only") \

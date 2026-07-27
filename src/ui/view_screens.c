@@ -817,6 +817,11 @@ static const InstallState *settings_inst(void) {
     if (M.now - g_set_inst_at >= 5) { sysinstall_probe(&g_set_inst); g_set_inst_at = M.now; }
     return &g_set_inst;
 }
+// ui.h: the Discover gate asks this on tab entry — same 5 s probe cache
+int ui_web_ok(void) {
+    const InstallState *is = settings_inst();
+    return is->ca_trusted && is->resolver_file && (is->pac_on || is->pf_anchor);
+}
 void view_settings(struct nk_context *ctx, struct nk_rect area) {
     char b[128];
     ui_screen_header(ctx, area, TR(S_SET_TITLE));
@@ -846,33 +851,40 @@ void view_settings(struct nk_context *ctx, struct nk_rect area) {
                   is->pf_anchor ? TR(S_SET_CONFIGURED) : TR(S_SET_NOT_CONFIGURED), C_GHOST,
                   is->pf_anchor ? C_DIM : C_GHOST);
         y += 30;
-        // functional = CA trusted + either browser route (PAC is the primary;
-        // resolver+pf is the legacy pair). The button flips on the ensemble.
+        // one user-owned bit, not an enable/uninstall button pair: ON means
+        // "converge to fully installed" (the repair button below re-runs the
+        // idempotent install when a piece rots), OFF runs the uninstall once.
         int fully = is->ca_trusted && is->resolver_file &&
                     (is->pac_on || is->pf_anchor);
-        struct nk_rect ib = nk_rect(x, y, 190, 30);
+        int want = sysinstall_web_wanted() == 1;
+        dk_text(ctx, F_PH14, x, y + 2, C_TEXT, TR(S_SET_WEB_TOGGLE));
+        dk_text(ctx, F_SM10, x, y + 21, C_GHOST, TR(S_SET_WEB_TOGGLE_SUB));
+        if (ui_toggle(ctx, nk_rect(area.x + area.w - 20 - 30, y + 6, 30, 16), want)) {
+            sysinstall_web_set(!want);
+            int ok = !want ? sysinstall_install() : sysinstall_uninstall();
+            if (!want) sysinstall_consent_mark();
+            snprintf(UI.web_note, sizeof UI.web_note, "%s",
+                     !want ? (ok ? TR(S_SET_ENABLED_OK) : TR(S_SET_INSTALL_INC))
+                           : (ok ? TR(S_SET_REMOVED_OK) : TR(S_SET_UNINSTALL_INC)));
+            UI.web_busy = 180;
+            g_set_inst_at = 0;                      // force a re-probe
+        }
+        y += 46;
         if (UI.web_busy > 0) {
-            ui_btn_disabled(ctx, ib, F_PH14, UI.web_note);
+            dk_text(ctx, F_SM10, x, y, C_GHOST, UI.web_note);
             UI.web_busy--;
-        } else if (!fully) {
-            if (dk_btn(ctx, ib, F_PH14, TR(S_SET_ENABLE_WEB), BTN_ACCENT)) {
+            y += 22;
+        } else if (want && !fully) {
+            struct nk_rect ib = nk_rect(x, y, 190, 30);
+            if (dk_btn(ctx, ib, F_PH14, TR(S_SET_REPAIR_WEB), BTN_ACCENT)) {
                 int ok = sysinstall_install();
-                sysinstall_consent_mark();
                 snprintf(UI.web_note, sizeof UI.web_note,
                          "%s", ok ? TR(S_SET_ENABLED_OK) : TR(S_SET_INSTALL_INC));
                 UI.web_busy = 180;
-                g_set_inst_at = 0;                  // force a re-probe
-            }
-        } else {
-            if (dk_btn_col(ctx, ib, F_PH14, TR(S_SET_UNINSTALL_WEB), BTN_LINE, C_RED)) {
-                int ok = sysinstall_uninstall();
-                snprintf(UI.web_note, sizeof UI.web_note,
-                         "%s", ok ? TR(S_SET_REMOVED_OK) : TR(S_SET_UNINSTALL_INC));
-                UI.web_busy = 180;
                 g_set_inst_at = 0;
             }
+            y += 40;
         }
-        y += 40;
     }
 
     // ── startup ──────────────────────────────────────────────────────────────
@@ -887,6 +899,12 @@ void view_settings(struct nk_context *ctx, struct nk_rect area) {
         dk_text(ctx, F_SM10, x, y + 21, C_GHOST, TR(S_SET_LOGIN_SUB));
         if (ui_toggle(ctx, nk_rect(area.x + area.w - 20 - 30, y + 6, 30, 16), li))
             sysinstall_loginitem_set(!li);
+        y += 46;
+        int bg = sysinstall_bgstart_state();
+        dk_text(ctx, F_PH14, x, y + 2, C_TEXT, TR(S_SET_BGSTART));
+        dk_text(ctx, F_SM10, x, y + 21, C_GHOST, TR(S_SET_BGSTART_SUB));
+        if (ui_toggle(ctx, nk_rect(area.x + area.w - 20 - 30, y + 6, 30, 16), bg))
+            sysinstall_bgstart_set(!bg);
         y += 46;
     }
 

@@ -245,6 +245,10 @@ static void apply_open_hook(void) {
 }
 
 static void init(void) {
+    // Settings' "start in background" = --background without the argv: every
+    // launch opens to the tray until the user asks for a window
+    if (!S.demo && !S.background && sysinstall_bgstart_state())
+        S.background = 1;
     // A --background spawn racing a live instance: launchd fires a RunAtLoad
     // agent the moment it is (re)registered — i.e. on every Settings
     // toggle-ON — and again at each login even when the user already opened
@@ -286,6 +290,33 @@ static void init(void) {
         !getenv("PEPENET_ZONE_DUMP") && !getenv("PEPENET_SECRET_TEST") &&
         !sysinstall_consent_seen())
         UI.dialog = DLG_CONSENT;
+    // web access is a desired-state bit (sysinstall.h). Migrate pre-flag
+    // installs by inference (anything probed installed means the user said
+    // yes back then), then reconcile: wanted ON + a rotted piece + a window
+    // the user will actually see → the consent card in repair dress. One
+    // prompt fixes; background starts and headless hooks never prompt.
+    if (!S.demo && sysinstall_consent_seen() &&
+        !getenv("PEPENET_OPEN") && !getenv("PEPENET_DIR_DUMP") &&
+        !getenv("PEPENET_CERT_DUMP") && !getenv("PEPENET_ZONE_DUMP") &&
+        !getenv("PEPENET_SECRET_TEST")) {
+        InstallState is;
+        sysinstall_probe(&is);
+        if (sysinstall_web_wanted() < 0)
+            sysinstall_web_set(is.pac_on || is.resolver_file || is.pf_anchor);
+        if (!S.background && UI.dialog == DLG_NONE &&
+            sysinstall_web_wanted() == 1 &&
+            !(is.ca_trusted && is.resolver_file && (is.pac_on || is.pf_anchor))) {
+            UI.consent_repair = 1;
+            UI.dialog = DLG_CONSENT;
+        }
+        // the window opens ON Discover (the default view) — web access off
+        // gates the landing exactly like a tab click would (closable)
+        if (!S.background && UI.dialog == DLG_NONE && UI.view == V_DISCOVER &&
+            sysinstall_web_wanted() != 1) {
+            UI.consent_repair = 0;
+            UI.dialog = DLG_CONSENT;
+        }
+    }
     if (!S.demo && !S.engines_up)
         UI.dialog = DLG_LOCKED;         // the lock dialog outranks consent
     // a wallet minted this launch exists nowhere but this Mac's keychain —

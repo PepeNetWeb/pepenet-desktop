@@ -120,6 +120,10 @@ typedef struct {
     int  dns_name_sel;              // index into owned M.names (-1 none)
     int  web_busy;                  // frames left on an install/generate note
     char web_note[96];
+    int  consent_repair;            // DLG_CONSENT context: 0 = the enable ask
+                                    // (first run / web access off), 1 = repair
+                                    // (wanted ON but a probe found rot) — skip
+                                    // must NOT flip the wanted bit off then
 
     // add/edit-record modal (DLG_DNS_REC, 9f/9g)
     int  dnsm_edit;                 // 0 = add, 1 = edit (delete lives here)
@@ -207,6 +211,8 @@ void ui_popup_open(Popup p, struct nk_rect anchor);                // sets the o
 void ui_btn_disabled(struct nk_context *ctx, struct nk_rect r, ThemeFont f,
                      const char *label);                           // inert, unmistakably dead
 int  ui_toggle(struct nk_context *ctx, struct nk_rect r, int on);  // → clicked (caller flips)
+int  ui_web_ok(void);           // cached sysinstall probe: every piece present
+                                // (view_screens.c owns the 5 s probe cache)
 void ui_kv_row(struct nk_context *ctx, float x, float xr, float y,
                const char *k, const char *v, struct nk_color kc, struct nk_color vc);
 int  ui_stepper(struct nk_context *ctx, struct nk_rect r, char *valbuf,

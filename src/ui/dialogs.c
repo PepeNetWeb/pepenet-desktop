@@ -1666,7 +1666,8 @@ static void d_consent(struct nk_context *ctx, struct nk_rect screen) {
     float x = r.x + pad, xr = r.x + w - pad, y = r.y + 24;
     float cw = xr - x;
 
-    dk_text(ctx, F_PH22, x, y, C_TEXT, TR(S_DLG_CONSENT_TITLE));
+    dk_text(ctx, F_PH22, x, y, C_TEXT,
+            TR(UI.consent_repair ? S_DLG_CONSENT_TITLE_FIX : S_DLG_CONSENT_TITLE));
     y += 34 + 14;
 
     // scope promise strip
@@ -1703,6 +1704,10 @@ static void d_consent(struct nk_context *ctx, struct nk_rect screen) {
         if (hot) sapp_set_mouse_cursor(SAPP_MOUSECURSOR_POINTING_HAND);
         if (dk_click(ctx, sk)) {
             sysinstall_consent_mark();
+            // skipping the ENABLE ask records "off" (the user's bit — Discover
+            // re-asks on entry); skipping a REPAIR must not flip a wanted
+            // install off, it just waits for the next open
+            if (!UI.consent_repair && !M.demo) sysinstall_web_set(0);
             close_dlg();
             return;
         }
@@ -1711,6 +1716,7 @@ static void d_consent(struct nk_context *ctx, struct nk_rect screen) {
         if (dk_btn(ctx, eb, F_PH16, TR(S_DLG_CONSENT_ENABLE), BTN_ACCENT)) {
             int ok = M.demo ? 0 : sysinstall_install();
             sysinstall_consent_mark();
+            if (!M.demo) sysinstall_web_set(1);
             snprintf(UI.web_note, sizeof UI.web_note, "%s",
                      ok ? TR(S_DLG_CONSENT_ENABLED) : TR(S_DLG_CONSENT_INCOMPLETE));
             UI.web_busy = 240;

@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "../ops.h"
 #include "../platform.h"
+#include "../sysinstall.h"
 #include "../update.h"
 
 #include "../../vendor/sokol/sokol_app.h"
@@ -38,7 +39,18 @@ static void tab_strip(struct nk_context *ctx, float W, float y0) {
         if (active)
             dk_fill(ctx, nk_rect(x - 4, y0 + TAB_H - 2, w + 8, 2), 0, C_ACCENT);
         if (hot) sapp_set_mouse_cursor(SAPP_MOUSECURSOR_POINTING_HAND);
-        if (dk_click(ctx, r)) { UI.view = TABS[i].v; UI.popup = POP_NONE; }
+        if (dk_click(ctx, r)) {
+            UI.view = TABS[i].v; UI.popup = POP_NONE;
+            // Discover is MADE OF web access — without it every card 502s, so
+            // gate the tab with the consent card instead of a broken screen:
+            // web access off (or never chosen) → the enable ask, every visit
+            // (closable); wanted ON but a piece rotted → the repair ask.
+            if (TABS[i].v == V_DISCOVER && !M.demo && UI.dialog == DLG_NONE) {
+                int want = sysinstall_web_wanted();
+                if (want != 1)          { UI.consent_repair = 0; UI.dialog = DLG_CONSENT; }
+                else if (!ui_web_ok())  { UI.consent_repair = 1; UI.dialog = DLG_CONSENT; }
+            }
+        }
         x += w + 34;
     }
     if (ui_balance_chip(ctx, W - 16, y0 + TAB_H / 2))

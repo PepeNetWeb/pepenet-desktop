@@ -240,6 +240,46 @@ void sysinstall_consent_mark(void) {
     if (f) { fputs("answered\n", f); fclose(f); }
 }
 
+// ── desired-state prefs (sysinstall.h: the user's one bit + tray start) ──────
+static const char *webpref_path(char *buf, size_t cap) {
+    return platform_data_path("webaccess-" APP_TLD, buf, cap);
+}
+
+int sysinstall_web_wanted(void) {
+    char p[512];
+    FILE *f = fopen(webpref_path(p, sizeof p), "r");
+    if (!f) return -1;
+    int c = fgetc(f);
+    fclose(f);
+    return c == '1';
+}
+
+void sysinstall_web_set(int on) {
+    char p[512];
+    FILE *f = fopen(webpref_path(p, sizeof p), "w");
+    if (f) { fputc(on ? '1' : '0', f); fclose(f); }
+}
+
+static const char *bgstart_path(char *buf, size_t cap) {
+    return platform_data_path("bgstart-" APP_TLD, buf, cap);
+}
+
+int sysinstall_bgstart_state(void) {
+    char p[512];
+    struct stat st;
+    return stat(bgstart_path(p, sizeof p), &st) == 0;
+}
+
+void sysinstall_bgstart_set(int on) {
+    char p[512];
+    if (on) {
+        FILE *f = fopen(bgstart_path(p, sizeof p), "w");
+        if (f) { fputs("1\n", f); fclose(f); }
+    } else {
+        remove(bgstart_path(p, sizeof p));
+    }
+}
+
 int sysinstall_uninstall(void) {
     ca_set_tld(APP_TLD);
     trust_uninstall(ca_root_cert_path(), ca_root_cn());
