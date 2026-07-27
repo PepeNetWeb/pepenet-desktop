@@ -66,9 +66,20 @@
 #define APP_PROXY_PORT  8443            // local DANE proxy, 127.0.0.1
 #define APP_PAC_PORT    8444            // PAC + CONNECT front door (Windows —
                                         // the DNS-leak-blocker-proof browser path)
+#define APP_PROXY_PF_PORT 8445          // mac only: the pf rdr TARGET (:443
+                                        // lands here) — a second listener of
+                                        // the same DANE proxy that NOTHING
+                                        // dials directly. macOS pf's rdr on
+                                        // lo0 breaks direct dials to its
+                                        // target port (the SYN-ACK reply gets
+                                        // caught by the translation state and
+                                        // never reaches the caller), so the
+                                        // port pf owns must be dial-free;
+                                        // internal dials keep APP_PROXY_PORT.
 #define APP_DNS_PORT_S   "15353"        // string twins for command lines
 #define APP_PROXY_PORT_S "8443"
 #define APP_PAC_PORT_S   "8444"
+#define APP_PROXY_PF_PORT_S "8445"
 // pf anchor name — MUST mirror install-helper.sh's "pepenet-$TLD" (the helper
 // derives it from its <tld> argument; this macro is the probe's side)
 #define APP_PF_ANCHOR   "pepenet-" APP_TLD

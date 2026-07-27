@@ -50,12 +50,26 @@ void sysinstall_probe(InstallState *out) {
     // instead: the anchor and its /etc/pf.conf hook.
     out->pf_anchor = 0;
     if (stat("/etc/pf.anchors/" APP_PF_ANCHOR, &st) == 0) {
-        FILE *f = fopen("/etc/pf.conf", "r");
+        // the anchor must ALSO target the dedicated pf port: an anchor from a
+        // build that redirected onto APP_PROXY_PORT poisons direct dials to
+        // the proxy (pf breaks dials to its rdr target — appconf.h), so a
+        // stale target reads as "not installed" and re-enabling repairs it
+        int target_ok = 0;
+        FILE *f = fopen("/etc/pf.anchors/" APP_PF_ANCHOR, "r");
         if (f) {
             char line[512];
             while (fgets(line, sizeof line, f))
-                if (strstr(line, "\"" APP_PF_ANCHOR "\"")) { out->pf_anchor = 1; break; }
+                if (strstr(line, "port " APP_PROXY_PF_PORT_S)) { target_ok = 1; break; }
             fclose(f);
+        }
+        if (target_ok) {
+            f = fopen("/etc/pf.conf", "r");
+            if (f) {
+                char line[512];
+                while (fgets(line, sizeof line, f))
+                    if (strstr(line, "\"" APP_PF_ANCHOR "\"")) { out->pf_anchor = 1; break; }
+                fclose(f);
+            }
         }
     }
 
@@ -76,7 +90,7 @@ int sysinstall_install(void) {
     helper_path(helper, sizeof helper);
     snprintf(script, sizeof script,
              "osascript -e 'do shell script \"/bin/sh \\\"%s\\\" install " APP_TLD " "
-             "--dns-port " APP_DNS_PORT_S " --proxy-port " APP_PROXY_PORT_S " "
+             "--dns-port " APP_DNS_PORT_S " --proxy-port " APP_PROXY_PF_PORT_S " "
              "--pac-port " APP_PAC_PORT_S "\" "
              "with administrator privileges' >/dev/null 2>&1",
              helper);

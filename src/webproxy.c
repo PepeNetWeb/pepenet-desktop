@@ -40,6 +40,12 @@ static struct {
     pthread_t th443;                // browsers dial <name>:443 — no pf on
     int       lfd443, running443;   // Windows, but no privileged ports either:
                                     // bind it directly, best-effort
+#else
+    pthread_t thpf;                 // mac: pf's rdr target (APP_PROXY_PF_PORT).
+    int       lfdpf, runningpf;     // :443 redirects land here and ONLY here —
+                                    // pf breaks direct dials to its rdr target,
+                                    // so this port must never be dialed (see
+                                    // appconf.h); internal dials use lfd/8443
 #endif
 
     pthread_mutex_t mu;
@@ -91,6 +97,14 @@ static void *proxy443_main(void *arg) {
     (void)arg;
     proxy_serve_ctl(g.lfd443, g.root, g.rootkey, resolver_resolve, g.rv, &EV, &g.stop);
     g.running443 = 0;
+    return NULL;
+}
+#else
+// second acceptor on the pf rdr target — same shared state (see proxy443_main)
+static void *proxypf_main(void *arg) {
+    (void)arg;
+    proxy_serve_ctl(g.lfdpf, g.root, g.rootkey, resolver_resolve, g.rv, &EV, &g.stop);
+    g.runningpf = 0;
     return NULL;
 }
 #endif
@@ -371,6 +385,24 @@ int webproxy_start(const char *store_path, const char *chain_db) {
         fprintf(stderr, "webproxy: 127.0.0.1:443 in use — will retry; the PAC "
                         "route still serves browsers\n");
     }
+#else
+    // mac: the pf rdr target. sysinstall's redirect sends loopback :443 here;
+    // best-effort — without the pf route the PAC path serves browsers anyway.
+    g.lfdpf = proxy_listen("127.0.0.1", APP_PROXY_PF_PORT);
+    if (g.lfdpf >= 0) {
+        g.runningpf = 1;
+        if (pthread_create(&g.thpf, NULL, proxypf_main, NULL) != 0) {
+            g.runningpf = 0;
+            close(g.lfdpf);
+            g.lfdpf = -1;
+        } else
+            fprintf(stderr, "webproxy: pf rdr target on 127.0.0.1:%d\n",
+                    APP_PROXY_PF_PORT);
+    } else {
+        g.lfdpf = -1;
+        fprintf(stderr, "webproxy: 127.0.0.1:%d unavailable — the pf :443 "
+                        "route is off (PAC route unaffected)\n", APP_PROXY_PF_PORT);
+    }
 #endif
     // the DNS-free browser path (see the front-door block comment): PAC +
     // CONNECT — on mac the PRIMARY route (no unprivileged loopback :443, pf
@@ -406,6 +438,12 @@ void webproxy_stop(void) {
         pthread_join(g.th443, NULL);
         close(g.lfd443);
         g.lfd443 = -1;
+    }
+#else
+    if (g.lfdpf >= 0) {
+        pthread_join(g.thpf, NULL);
+        close(g.lfdpf);
+        g.lfdpf = -1;
     }
 #endif
     if (g.lfdpac >= 0) {
