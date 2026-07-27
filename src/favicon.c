@@ -10,7 +10,18 @@
 #define STBI_ONLY_BMP
 #define STBI_NO_LINEAR
 #define STBI_NO_HDR
+// GCC's -Wstringop-overflow misfires inside stb_image's PNG tRNS path (the
+// img_n <= 3 loop bound is invisible to its range analysis) — vendored code,
+// known upstream noise. Scoped to the include so the warning stays live for
+// this file's own code.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 #include "../vendor/nuklear/example/stb_image.h"
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <pthread.h>
 #include <stdlib.h>

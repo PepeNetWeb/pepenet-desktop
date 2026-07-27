@@ -10,10 +10,21 @@
 
 #define SOKOL_IMPL
 // SOKOL_D3D11 comes from CMake
+// GCC's -Wstringop-overflow misfires in sokol_gfx's D3D11 pipeline setup (it
+// invents an out-of-range render-target index the SG_MAX_COLOR_ATTACHMENTS
+// bound rules out) — vendored code, known GCC-noise class. Scoped to the
+// includes so the warning stays live for this file's own code.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 #include "../vendor/sokol/sokol_app.h"
 #include "../vendor/sokol/sokol_gfx.h"
 #include "../vendor/sokol/sokol_glue.h"
 #include "../vendor/sokol/sokol_log.h"
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #define NK_IMPLEMENTATION
 #include "ui/nk_config.h"          // the ONE nuklear flag set (ui/nk_config.h)

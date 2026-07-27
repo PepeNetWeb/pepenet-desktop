@@ -250,7 +250,10 @@ void view_ssl(struct nk_context *ctx, struct nk_rect area) {
     float top = ui_name_header(ctx, area, apex, TR(S_SSL_WHICH), TR(S_SSL_LINK_DNS), V_DNS);
 
     if (!M.demo) ce_scan(apex);
-    int nce = M.demo ? 0 : g_nce;
+    // the clamp restates ce_scan's `g_nce < 16` fill bound where GCC's range
+    // analysis can see it — it can't track the invariant across the global, so
+    // without this -Wstringop-overread flags the g_ce[k] walks below
+    int nce = M.demo ? 0 : g_nce > 16 ? 16 : g_nce;
     int have_apex = 0;
     for (int i = 0; i < nce; i++) have_apex |= g_ce[i].is_apex;
 

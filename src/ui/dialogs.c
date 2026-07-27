@@ -152,8 +152,13 @@ static void fee_total(struct nk_context *ctx, float x, float xr, float *y,
 }
 
 static void names_remove(int idx) {
+    // callers pass selection indices that are in range, but nothing in this
+    // function proved it — the guard makes it robust AND gives GCC the bound
+    // it needs (an unproven idx made the shift below look like a wild memmove,
+    // -Wstringop-overflow)
+    if (idx < 0 || idx >= M.nnames) return;
     for (int i = idx; i < M.nnames - 1; i++) M.names[i] = M.names[i + 1];
-    if (M.nnames > 0) M.nnames--;
+    M.nnames--;
     ui_sel_clear();
 }
 
