@@ -1,0 +1,65 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  PepeNet APP ICON — the square, full-bleed variant of design/logo.svg.
+
+  App icons are square and edge-to-edge (the circular badge would leave
+  transparent corners in the Dock and taskbar), and they carry padding so the
+  artwork does not crowd the tile. Measured off the original raster, the globe
+  spans 0.728 of the icon's width where it spans 0.8625 of the round badge — so
+  the canvas is 64 / 0.728 * 0.8625 = 75.8 units, i.e. 5.9 of padding a side.
+
+  The artwork geometry below is IDENTICAL to logo.svg, byte for byte. Only the
+  viewBox is widened and the badge circle becomes a full-bleed rect. Doing it
+  that way (rather than scaling the artwork down inside a 64 box) keeps every
+  user-space gradient honest: pnG now spans the padded canvas, so pnGu — the
+  green edge on the P, which inherits it — still matches the background exactly
+  at every height. Scaling the artwork instead would have shifted the edge
+  ramp out of step with the tile behind it.
+
+  Renders to design/pepenetlogo-appicon.png, which feeds packaging/pepenet.icns
+  and packaging/pepenet.ico.
+-->
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='-5.9 -5.9 75.8 75.8'
+     width='1024' height='1024' role='img' aria-label='PepeNet'>
+  <title>PepeNet</title>
+
+  <defs>
+    <!-- the tile; user space across the PADDED canvas so the edge ramp below
+         inherits the same span -->
+    <linearGradient id='pnG' gradientUnits='userSpaceOnUse'
+                    x1='0' y1='-5.9' x2='0' y2='69.9'>
+      <stop offset='0' stop-color='#6cb274'/>
+      <stop offset='.5' stop-color='#429856'/>
+      <stop offset='1' stop-color='#368b4c'/>
+    </linearGradient>
+
+    <!-- the white ramp, in the ARTWORK's own space (y 0..64) so the globe and
+         P shade exactly as they do in logo.svg -->
+    <linearGradient id='pnW' gradientUnits='userSpaceOnUse' x1='0' y1='0' x2='0' y2='64'>
+      <stop offset='0' stop-color='#ffffff'/>
+      <stop offset='1' stop-color='#dcddd9'/>
+    </linearGradient>
+
+    <!-- both pre-rotated to cancel the glyph group's tilt, so the ramps stay
+         vertical inside the rotated letter -->
+    <linearGradient id='pnWp' href='#pnW' gradientTransform='rotate(-9.8 32 32)'/>
+    <linearGradient id='pnGu' href='#pnG' gradientTransform='rotate(-9.8 32 32)'/>
+  </defs>
+
+  <!-- the tile, edge to edge -->
+  <rect x='-5.9' y='-5.9' width='75.8' height='75.8' fill='url(#pnG)'/>
+
+  <!-- the globe: rim, one meridian ellipse, the axes, and two curved parallels -->
+  <g fill='none' stroke='url(#pnW)' stroke-width='2.15'>
+    <circle cx='32' cy='32' r='27.6'/>
+    <ellipse cx='32' cy='32' rx='16' ry='27.6'/>
+    <path d='M32 4.4v55.2M4.4 32h55.2M11.2 13.8Q32 25.4 52.8 13.8M11.2 50.2Q32 38.6 52.8 50.2'/>
+  </g>
+
+  <!-- the P, tilted, edged in the tile green -->
+  <g transform='rotate(9.8 32 32)'>
+    <path d='M21.1 17.1h19.4c4.8 0 7.4 4.8 7.4 10.9s-2.6 10.9-7.4 10.9H28.1v13.35h-7V30.4h-3.6v-4.4h3.6zm7 5.8v3.1h6.3v4.4h-6.3v2.5h7.9c3 0 4.3-2.2 4.3-5s-1.3-5-4.3-5z'
+          fill='url(#pnWp)' stroke='url(#pnGu)' stroke-width='4'
+          stroke-linejoin='miter' stroke-miterlimit='12' paint-order='stroke'/>
+  </g>
+</svg>
