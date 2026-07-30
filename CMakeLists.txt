@@ -207,6 +207,11 @@ target_include_directories(tls_embed PUBLIC
     ${TLS_DIR}/src
 )
 target_include_directories(tls_embed PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# proxy.c prints the version in the fail-closed page footer. Without this the
+# definition reaches only the pepenet-desktop target and proxy.c, compiled into
+# this static lib, falls back to "dev" — so a shipped build's error pages would
+# claim a version the app is not.
+target_compile_definitions(tls_embed PRIVATE PEPENET_VERSION="${PEPENET_VERSION}")
 target_link_libraries(tls_embed PUBLIC
     dns_embed
     ${TLS_SSL_LIBS}
