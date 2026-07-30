@@ -231,7 +231,7 @@
     X(S_SET_DANEPROXY,          "DANE proxy") \
     X(S_SET_LASTREFUSED_FMT,    "last refused publish: %s") \
     X(S_SET_BROWSER_HDR,        "BROWSER ACCESS") \
-    X(S_SET_ROOTCERT,           "root certificate") \
+    X(S_SET_ROOTCERT,           APP_DOT_TLD " certificate") \
     X(S_SET_TRUSTED,            "trusted") \
     X(S_SET_NOT_INSTALLED,      "not installed") \
     X(S_SET_PRESENT,            "present") \
