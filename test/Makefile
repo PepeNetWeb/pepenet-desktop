@@ -25,7 +25,13 @@ DNSSRC  := $(ROOT)/dns/src
 MESHINC := $(ROOT)/mesh/include
 TLSSRC  := $(ROOT)/tls/src
 
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
 OPENSSL ?= /opt/homebrew/opt/openssl@3
+OPENSSL_INC := -I$(OPENSSL)/include
+else
+OPENSSL_INC := $(shell pkg-config --cflags openssl)
+endif
 
 CC      ?= cc
 # -Isrc first, then libsecp's include, then the protocol headers: the same

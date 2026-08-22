@@ -25,6 +25,36 @@ cmake -B build && cmake --build build
 ./build/pepenet-desktop.app/Contents/MacOS/pepenet-desktop --demo
 ```
 
+### Linux (OpenGL/GLX, X11 tarball)
+
+Ubuntu 24.04 (the first verified target):
+
+```sh
+sudo apt install build-essential cmake pkg-config \
+  libssl-dev libsqlite3-dev \
+  libx11-dev libxi-dev libxcursor-dev libgl1-mesa-dev \
+  libdbus-1-dev libsecret-1-dev zenity
+git submodule update --init --recursive
+cmake -B build && cmake --build build
+./build/pepenet --demo
+```
+
+`libnss3-tools` (`certutil`) is optional — without it the user NSS db is
+skipped and the privileged helper still plants the system CA store.
+
+Package a tarball:
+
+```sh
+packaging/package-linux.sh    # → dist/pepenet-<ver>-linux-<arch>.tar.gz
+```
+
+Sokol's Linux backend is X11 (Wayland via XWayland). The app is
+tray-resident: closing the window hides it; Quit is on the tray icon
+(StatusNotifierItem). Wallet keys live in the Secret Service (GNOME
+Keyring / KWallet). Web access (DNS & Web tab) is a pkexec helper:
+system CA + systemd-resolved split-DNS for `*.pepe` + optional nftables
+`:443→:8445`; PAC via GNOME/KDE settings is the primary browser route.
+
 ### Windows (D3D11, `pepenet.exe` + MSI)
 
 Toolchain: MSYS2 UCRT64 (`pacman -S mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,openssl,sqlite3}`).
@@ -36,6 +66,10 @@ cmake -B build-win -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-win
 ./build-win/pepenet.exe --demo
 ```
+
+The Linux TUs are the third implementation of the same seams
+(`platform_linux.c`, `sokol_impl_linux.c`, `tray_linux.c`,
+`sysinstall_linux.c`) — not a fork of the mac/win files.
 
 The submodule sources (`dns/`, `tls/`, `indexer/`, `mesh/`) compile
 **unchanged** — `src/compat/win/` supplies the POSIX net/fs headers over
@@ -100,5 +134,7 @@ planted but inert — a dead `:8443` is the legible "PepeNet is off" state.
 
 `packaging/package.sh` builds a self-contained, ad-hoc-signed `.dmg`
 (`CODESIGN_ID=…` + `NOTARIZE=1` for a notarized build); `packaging/package-win.ps1`
-builds the Windows MSI. The `.app` links only system frameworks — OpenSSL 3 is
-static, no Homebrew dylibs.
+builds the Windows MSI; `packaging/package-linux.sh` builds a
+`pepenet-<ver>-linux-<arch>.tar.gz`. The macOS `.app` links only system
+frameworks — OpenSSL 3 is static, no Homebrew dylibs. The Linux tarball
+links distro OpenSSL 3.

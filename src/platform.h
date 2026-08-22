@@ -5,6 +5,7 @@
 //   • sokol_impl.m     — platform_style_window (the drawn-titlebar window chrome)
 //   • tray.m           — platform_window_visible (the tray-resident window state)
 // A Windows port supplies platform_win.c + tray_win.c providing the same names;
+// Linux supplies platform_linux.c + sokol_impl_linux.c + tray_linux.c.
 // nothing above this header is meant to know which OS it is running on.
 //
 // The two HIGHER-LEVEL seams keep their own headers because they compose these

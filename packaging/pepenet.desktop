@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=PepeNet
+Comment=PepeNet desktop — wallet, names, and .pepe web
+Exec=pepenet
+Icon=pepenet
+Terminal=false
+Categories=Network;
+StartupWMClass=pepenet
+Keywords=pepe;dns;wallet;

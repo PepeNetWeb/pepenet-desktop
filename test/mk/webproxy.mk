@@ -28,7 +28,7 @@
 TESTS  += t_webproxy
 JITTER += j_webproxy
 
-WPINC  := -I$(TLSSRC) -I$(OPENSSL)/include
+WPINC  := -I$(TLSSRC) $(OPENSSL_INC)
 
 t_webproxy: t_webproxy.c $(SRC)/webproxy.c
 	$(CC) $(CFLAGS) $(INC) $(WPINC) -o $@ $^ $(LDFLAGS) -lpthread

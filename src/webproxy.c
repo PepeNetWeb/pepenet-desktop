@@ -41,11 +41,12 @@ static struct {
     int       lfd443, running443;   // Windows, but no privileged ports either:
                                     // bind it directly, best-effort
 #else
-    pthread_t thpf;                 // mac: pf's rdr target (APP_PROXY_PF_PORT).
-    int       lfdpf, runningpf;     // :443 redirects land here and ONLY here —
-                                    // pf breaks direct dials to its rdr target,
-                                    // so this port must never be dialed (see
-                                    // appconf.h); internal dials use lfd/8443
+    pthread_t thpf;                 // mac pf / Linux nft rdr target
+    int       lfdpf, runningpf;     // (APP_PROXY_PF_PORT). :443 redirects land
+                                    // here and ONLY here — pf/nft break direct
+                                    // dials to the rdr target, so this port
+                                    // must never be dialed (see appconf.h);
+                                    // internal dials use lfd/8443
 #endif
 
     pthread_mutex_t mu;
@@ -386,8 +387,8 @@ int webproxy_start(const char *store_path, const char *chain_db) {
                         "route still serves browsers\n");
     }
 #else
-    // mac: the pf rdr target. sysinstall's redirect sends loopback :443 here;
-    // best-effort — without the pf route the PAC path serves browsers anyway.
+    // mac pf / Linux nft rdr target. sysinstall's redirect sends loopback
+    // :443 here; best-effort — without the rdr the PAC path serves browsers.
     g.lfdpf = proxy_listen("127.0.0.1", APP_PROXY_PF_PORT);
     if (g.lfdpf >= 0) {
         g.runningpf = 1;

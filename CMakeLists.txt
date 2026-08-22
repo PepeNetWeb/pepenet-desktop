@@ -10,9 +10,10 @@
 #  github; override with `git config submodule.vendor/secp256k1.url <local>` in
 #  indexer/ before `submodule update` if needed)
 #
-# Platforms: macOS (Metal, .app bundle) and Windows (D3D11, MinGW-w64/UCRT64 —
+# Platforms: macOS (Metal, .app bundle), Windows (D3D11, MinGW-w64/UCRT64 —
 # gcc + winpthreads; MSYS2's static OpenSSL/sqlite3; WiX MSI via
-# packaging/package-win.ps1). The submodules compile UNCHANGED on Windows:
+# packaging/package-win.ps1), and Linux (OpenGL/GLX, X11, tarball via
+# packaging/package-linux.sh). The submodules compile UNCHANGED on Windows:
 # src/compat/win/ supplies the POSIX net/fs headers over Winsock.
 
 cmake_minimum_required(VERSION 3.20)
@@ -86,7 +87,7 @@ if(WIN32)
     set(OPENSSL_USE_STATIC_LIBS TRUE)
     find_package(OpenSSL REQUIRED)
     set(TLS_SSL_LIBS OpenSSL::SSL OpenSSL::Crypto ws2_32 crypt32 bcrypt)
-else()
+elseif(APPLE)
     # OpenSSL 3, statically linked (never system LibreSSL — DANE needs
     # OpenSSL's SSL_dane_* which LibreSSL lacks; static keeps the .app
     # self-contained, no dylib bundling/rpath dance). The universal prefix
@@ -106,6 +107,18 @@ else()
         endif()
     endif()
     set(TLS_SSL_LIBS ${OPENSSL_PREFIX}/lib/libssl.a ${OPENSSL_PREFIX}/lib/libcrypto.a)
+else()
+    # Linux: distro OpenSSL 3 (DANE is in libssl). Static is an AppImage
+    # follow-on; a tarball links the distro .so and ships with a .desktop.
+    find_package(OpenSSL 3 REQUIRED)
+    find_package(SQLite3 REQUIRED)
+    find_package(OpenGL REQUIRED)
+    find_package(Threads REQUIRED)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(X11 REQUIRED x11 xi xcursor)
+    pkg_check_modules(DBUS REQUIRED dbus-1)
+    pkg_check_modules(SECRET REQUIRED libsecret-1)
+    set(TLS_SSL_LIBS OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 # ── The embedded canonical stack ──────────────────────────────────────────────
@@ -200,8 +213,10 @@ add_library(tls_embed STATIC
 if(WIN32)
     target_sources(tls_embed PRIVATE src/trust_win.c src/sysinstall_win.c)
     target_include_directories(tls_embed BEFORE PRIVATE ${COMPAT_WIN_DIR})
-else()
+elseif(APPLE)
     target_sources(tls_embed PRIVATE ${TLS_DIR}/src/trust.c src/sysinstall.c)
+else()
+    target_sources(tls_embed PRIVATE ${TLS_DIR}/src/trust.c src/sysinstall_linux.c)
 endif()
 target_include_directories(tls_embed PUBLIC
     ${TLS_DIR}/src
@@ -216,7 +231,7 @@ target_link_libraries(tls_embed PUBLIC
     dns_embed
     ${TLS_SSL_LIBS}
 )
-if(NOT WIN32)
+if(APPLE)
     target_include_directories(tls_embed PUBLIC ${OPENSSL_PREFIX}/include)
 endif()
 
@@ -293,7 +308,7 @@ if(WIN32)
             ${CMAKE_SOURCE_DIR}/packaging/install-helper.ps1
             "$<TARGET_FILE_DIR:pepenet-desktop>/resources/install-helper.ps1"
         COMMENT "Staging resources (fonts + install helper) next to the exe")
-else()
+elseif(APPLE)
     add_executable(pepenet-desktop MACOSX_BUNDLE
         ${DESKTOP_COMMON_SRCS}
         src/sokol_impl.m
@@ -347,6 +362,44 @@ else()
         sqlite3 secp256k1 dns_embed tls_embed
     )
     target_compile_definitions(pepenet-desktop PRIVATE SOKOL_METAL)
+elseif(UNIX)
+    add_executable(pepenet-desktop
+        ${DESKTOP_COMMON_SRCS}
+        src/sokol_impl_linux.c
+        src/tray_linux.c
+        src/platform_linux.c
+        ${DESKTOP_ENGINE_SRCS}
+        ${DESKTOP_IDX_SRCS}
+    )
+    target_compile_definitions(pepenet-desktop PRIVATE SOKOL_GLCORE)
+    target_include_directories(pepenet-desktop PRIVATE
+        ${X11_INCLUDE_DIRS} ${DBUS_INCLUDE_DIRS} ${SECRET_INCLUDE_DIRS}
+        ${OPENSSL_INCLUDE_DIR}
+    )
+    target_compile_options(pepenet-desktop PRIVATE
+        ${X11_CFLAGS_OTHER} ${DBUS_CFLAGS_OTHER} ${SECRET_CFLAGS_OTHER}
+    )
+    target_link_libraries(pepenet-desktop PRIVATE
+        SQLite::SQLite3 secp256k1 dns_embed tls_embed
+        OpenGL::GL
+        ${X11_LIBRARIES} ${DBUS_LIBRARIES} ${SECRET_LIBRARIES}
+        ${CMAKE_DL_LIBS} Threads::Threads m
+    )
+    add_custom_command(TARGET pepenet-desktop POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DFONT_DIR=${CMAKE_SOURCE_DIR}/vendor/fonts
+            "-DDST=$<TARGET_FILE_DIR:pepenet-desktop>/resources"
+            -P ${CMAKE_SOURCE_DIR}/scripts/copy_fonts.cmake
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/packaging/install-helper-linux.sh
+            "$<TARGET_FILE_DIR:pepenet-desktop>/resources/install-helper-linux.sh"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/packaging/pepenet-tray.png
+            "$<TARGET_FILE_DIR:pepenet-desktop>/resources/pepenet-tray.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/packaging/pepenet.desktop
+            "$<TARGET_FILE_DIR:pepenet-desktop>/resources/pepenet.desktop"
+        COMMENT "Staging resources (fonts + install helper + tray icon)")
 endif()
 
 # dev runs load fonts straight from the tree; the staged copy above serves
@@ -354,7 +407,7 @@ endif()
 target_compile_definitions(pepenet-desktop PRIVATE
     SHIB_DEV_FONT_DIR="${CMAKE_SOURCE_DIR}/vendor/fonts"
     PEPENET_VERSION="${PEPENET_VERSION}")
-if(APPLE AND NOT WIN32)
+if(APPLE OR UNIX)
     target_compile_definitions(pepenet-desktop PRIVATE
         SHIB_DEV_TRAY_ICON="${CMAKE_SOURCE_DIR}/packaging/pepenet-tray.png")
 endif()
