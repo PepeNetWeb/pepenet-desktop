@@ -1,6 +1,7 @@
 #!/bin/sh
 # install-helper-linux.sh — the PRIVILEGED half of PepeNet's web install, run
-# via `pkexec` from the DNS & Web tab. It does ONLY the steps that need root:
+# via pkexec (or sudo if pkexec is missing) from the DNS & Web tab. It does
+# ONLY the steps that need root:
 #   1. system CA store (update-ca-certificates / update-ca-trust) so p11-kit,
 #      Chromium, Firefox enterprise-roots, and curl all see the name-constrained
 #      root. The unprivileged NSS db is done in-process (trust_install).

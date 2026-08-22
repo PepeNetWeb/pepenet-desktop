@@ -3,7 +3,8 @@
 //   • root CA in the user NSS db — UNPRIVILEGED, in-process (tls/src/trust.c);
 //     certutil missing is a no-op, the helper plants the system store;
 //   • system CA + systemd-resolved split-DNS + nft :443 rdr — PRIVILEGED,
-//     packaging/install-helper-linux.sh via one pkexec prompt;
+//     packaging/install-helper-linux.sh via pkexec, or sudo if pkexec is
+//     missing (Ubuntu server images, passwordless-sudo VMs);
 //   • PAC autoconfig — UNPRIVILEGED (GNOME gsettings / KDE kwriteconfig),
 //     the PRIMARY browser route (DoH skips OS DNS; nft is best-effort).
 #if defined(__linux__) || defined(__unix__)
@@ -167,22 +168,44 @@ static int probe_nft(void) {
     return cmd_ok("nft list table ip pepenet-" APP_TLD " >/dev/null 2>&1");
 }
 
+static int have_bin(const char *name) {
+    char cmd[160];
+    snprintf(cmd, sizeof cmd, "command -v %s >/dev/null 2>&1", name);
+    return cmd_ok(cmd);
+}
+
 static int run_helper(const char *verb) {
-    char helper[512], cmd[1600];
+    char helper[512], args[1200], cmd[1600];
     helper_path(helper, sizeof helper);
     ca_ident();
     if (!strcmp(verb, "install")) {
-        snprintf(cmd, sizeof cmd,
-                 "pkexec /bin/sh \"%s\" install " APP_TLD
+        snprintf(args, sizeof args,
+                 "/bin/sh \"%s\" install " APP_TLD
                  " --dns-port " APP_DNS_PORT_S
                  " --proxy-port " APP_PROXY_PF_PORT_S
                  " --pac-port " APP_PAC_PORT_S
                  " --cert \"%s\"",
                  helper, ca_root_cert_path());
     } else {
-        snprintf(cmd, sizeof cmd, "pkexec /bin/sh \"%s\" uninstall " APP_TLD, helper);
+        snprintf(args, sizeof args, "/bin/sh \"%s\" uninstall " APP_TLD, helper);
     }
-    return cmd_ok(cmd);
+    // Already root: no elevator. Else pkexec (polkit GUI) if present —
+    // Ubuntu desktop. Else sudo, for passwordless-sudo boxes that do not
+    // ship pkexec (this VM, Ubuntu server).
+    if (geteuid() == 0) {
+        snprintf(cmd, sizeof cmd, "%s", args);
+        return cmd_ok(cmd);
+    }
+    if (have_bin("pkexec")) {
+        snprintf(cmd, sizeof cmd, "pkexec %s", args);
+        return cmd_ok(cmd);
+    }
+    if (have_bin("sudo")) {
+        snprintf(cmd, sizeof cmd, "sudo %s", args);
+        return cmd_ok(cmd);
+    }
+    fprintf(stderr, "sysinstall: neither pkexec nor sudo found\n");
+    return 0;
 }
 
 void sysinstall_probe(InstallState *out) {

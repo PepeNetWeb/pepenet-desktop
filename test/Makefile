@@ -37,7 +37,8 @@ CC      ?= cc
 # -Isrc first, then libsecp's include, then the protocol headers: the same
 # include-order dance the app's CMakeLists documents (quoted "secp256k1.h"
 # from indexer sources must find the VENDORED header, not the protocol's).
-CFLAGS  ?= -std=c11 -O1 -g -Wall -Wextra -Wno-unused-parameter
+# -D_DEFAULT_SOURCE: glibc + -std=c11 hides mkdtemp (t_dirscan). Harmless on Darwin.
+CFLAGS  ?= -std=c11 -D_DEFAULT_SOURCE -O1 -g -Wall -Wextra -Wno-unused-parameter
 INC     := -I$(SRC) -I$(IDX) -I$(SECPDIR)/include -I$(SM) -I$(DNSSRC) -I$(MESHINC)
 LDLIBS  := $(SECPLIB) -lsqlite3
 

@@ -119,6 +119,9 @@ else()
     pkg_check_modules(DBUS REQUIRED dbus-1)
     pkg_check_modules(SECRET REQUIRED libsecret-1)
     set(TLS_SSL_LIBS OpenSSL::SSL OpenSSL::Crypto)
+    # glibc + CMAKE_C_STANDARD 11 with extensions off would hide mkdtemp /
+    # fdopen. Extensions default ON (gnu11); pin the POSIX set anyway.
+    add_compile_definitions(_DEFAULT_SOURCE)
 endif()
 
 # ── The embedded canonical stack ──────────────────────────────────────────────

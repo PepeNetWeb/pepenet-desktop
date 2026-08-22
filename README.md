@@ -51,9 +51,11 @@ packaging/package-linux.sh    # → dist/pepenet-<ver>-linux-<arch>.tar.gz
 Sokol's Linux backend is X11 (Wayland via XWayland). The app is
 tray-resident: closing the window hides it; Quit is on the tray icon
 (StatusNotifierItem). Wallet keys live in the Secret Service (GNOME
-Keyring / KWallet). Web access (DNS & Web tab) is a pkexec helper:
-system CA + systemd-resolved split-DNS for `*.pepe` + optional nftables
-`:443→:8445`; PAC via GNOME/KDE settings is the primary browser route.
+Keyring / KWallet). Web access (DNS & Web tab) elevates with pkexec if
+present, otherwise sudo: system CA + systemd-resolved split-DNS for
+`*.pepe` + optional nftables `:443→:8445`. PAC via GNOME/KDE is the
+primary browser route. The helper is `packaging/install-helper-linux.sh`
+— not the macOS `install-helper.sh`.
 
 ### Windows (D3D11, `pepenet.exe` + MSI)
 
@@ -124,11 +126,24 @@ pepenet-desktop/src/README.md):
 ## System install (web access)
 
 The Discover tab's **Visit** and a real browser padlock need a one-time,
-consented system install (DNS & Web tab → *Install web access*): the `.pepe`
-root trusted in the login keychain (unprivileged), plus `/etc/resolver/pepe`
-and a pf `:443→:8443` redirect (one admin prompt, via
-`packaging/install-helper.sh`). Uninstall reverses all three. Quit leaves them
-planted but inert — a dead `:8443` is the legible "PepeNet is off" state.
+consented system install (DNS & Web tab → *Enable web access*). The
+resolver and DANE proxy already run **in-process** — that is the
+one-command shape. The helper only plants OS trust / DNS / proxy routing.
+Uninstall reverses it. Quit leaves the wiring planted but inert (dead
+ports = "PepeNet is off").
+
+Do not copy `pepenet-tls`'s `install.sh` for this: that script plants the
+same OS bits and **exits**; it never starts `dnsd` or the proxy.
+
+- **macOS** — login keychain (unprivileged, GUI auth) + `/etc/resolver/pepe`
+  + PAC + pf `:443→:8445`. One admin prompt via
+  `packaging/install-helper.sh`.
+- **Linux** — optional user NSS db + system CA store + systemd-resolved
+  split-DNS for `*.pepe` + PAC via GNOME/KDE + optional nftables
+  `:443→:8445`. Elevation is pkexec if present, otherwise sudo, via
+  `packaging/install-helper-linux.sh`.
+- **Windows** — user Root store + NRPT + PAC (UAC for NRPT), via
+  `packaging/install-helper.ps1`.
 
 ## Packaging
 
