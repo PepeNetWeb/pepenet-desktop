@@ -14,6 +14,13 @@ Navigation: the four sections — Discover (home) · My Names · Name Market ·
 DNS & Web — are tabs on a persistent strip; the balance chip at its right end
 drops down the wallet verbs + Settings (Send · Receive · Settings).
 
+**Install (one-liners, Enable web access, packaging):** [`INSTALL.md`](INSTALL.md).
+Headless POSIX daemons: [pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/linux/INSTALL.md).
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
+```
 
 ## Build
 
@@ -125,25 +132,10 @@ pepenet-desktop/src/README.md):
 
 ## System install (web access)
 
-The Discover tab's **Visit** and a real browser padlock need a one-time,
-consented system install (DNS & Web tab → *Enable web access*). The
-resolver and DANE proxy already run **in-process** — that is the
-one-command shape. The helper only plants OS trust / DNS / proxy routing.
-Uninstall reverses it. Quit leaves the wiring planted but inert (dead
-ports = "PepeNet is off").
-
-Do not copy `pepenet-tls`'s `install.sh` for this: that script plants the
-same OS bits and **exits**; it never starts `dnsd` or the proxy.
-
-- **macOS** — login keychain (unprivileged, GUI auth) + `/etc/resolver/pepe`
-  + PAC + pf `:443→:8445`. One admin prompt via
-  `packaging/install-helper.sh`.
-- **Linux** — optional user NSS db + system CA store + systemd-resolved
-  split-DNS for `*.pepe` + PAC via GNOME/KDE + optional nftables
-  `:443→:8445`. Elevation is pkexec if present, otherwise sudo, via
-  `packaging/install-helper-linux.sh`.
-- **Windows** — user Root store + NRPT + PAC (UAC for NRPT), via
-  `packaging/install-helper.ps1`.
+DNS & Web → **Enable web access**. Engines are already in-process; the
+helper only plants OS trust / DNS / PAC. Per-OS table, helpers, and
+ports: [`INSTALL.md`](INSTALL.md). Do not use `pepenet-tls/install.sh`
+here — that script never starts this app.
 
 ## Packaging
 
