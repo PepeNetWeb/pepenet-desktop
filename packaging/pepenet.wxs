@@ -43,6 +43,7 @@
                        Name="exe" Type="string" Value="[INSTALLDIR]pepenet.exe"
                        KeyPath="yes" />
         <File Id="PepenetExe" Source="$(var.BuildDir)\pepenet.exe" />
+        <File Id="PepenetWeb" Source="$(var.BuildDir)\pepenet-web.exe" />
         <RemoveFolder Id="RmInstallDir" On="uninstall" />
         <RemoveFolder Id="RmProgramsDir" Directory="ProgramsFolder" On="uninstall" />
       </Component>

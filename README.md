@@ -18,7 +18,7 @@ drops down the wallet verbs + Settings (Send · Receive · Settings).
 Headless POSIX daemons: [pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/linux/INSTALL.md).
 
 ```powershell
-# Windows PowerShell
+# Windows PowerShell — pepenet-web service (headless padlock), not the GUI
 irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
 ```
 

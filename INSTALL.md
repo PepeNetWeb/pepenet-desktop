@@ -12,38 +12,46 @@ These docs currently track the **`linux` branch**.
 
 ## One command
 
-### Windows
+### Windows — headless padlock (Windows Service)
 
-PowerShell:
+Same one-liner as pepenet-tls: installs **`pepenet-web.exe`** as service
+`PepeNetWeb` (boot, no GUI), plants CA + NRPT + PAC.
+
+PowerShell (admin UAC):
 
 ```powershell
 irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
 ```
 
-Command Prompt (`cmd.exe`) — `irm` / `iex` are PowerShell cmdlets:
+Command Prompt:
 
 ```bat
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex"
 ```
 
-Downloads the latest `Windows-PepeNet-*.msi`, installs per-user (no admin)
-into `%LOCALAPPDATA%\Programs\PepeNet`, starts `pepenet.exe --background`,
-and registers **logon autostart** (HKCU Run + a restarting AtLogOn scheduled
-task). Then **Enable web access** in DNS & Web (one UAC prompt, NRPT).
+`pepenet-web` is this repo’s WIN32 target (chain sync + resolver + DANE
+proxy, no Sokol). A GitHub MSI must contain `pepenet-web.exe` (linux-branch
+WiX). Until then, build it and pass the path:
 
-Undo — PowerShell:
+```
+cmake --build build-win --target pepenet-web
+$env:PEPENET_WEB_EXE='C:\path\build-win\pepenet-web.exe'
+irm … | iex
+```
+
+The **GUI** MSI from [Releases](https://github.com/PepeNetWeb/pepenet-desktop/releases)
+is a separate install (wallet / Discover). Enable web access in the app if
+you want the tray client instead of the service.
+
+Undo:
 
 ```powershell
 $env:PEPENET_UNINSTALL='1'; irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
 ```
 
-Command Prompt:
-
 ```bat
 set PEPENET_UNINSTALL=1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex"
 ```
-
-Or install the MSI from [Releases](https://github.com/PepeNetWeb/pepenet-desktop/releases) by hand.
 
 ### macOS / Linux — padlock daemon, no GUI
 

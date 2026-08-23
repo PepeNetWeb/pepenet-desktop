@@ -311,6 +311,30 @@ if(WIN32)
             ${CMAKE_SOURCE_DIR}/packaging/install-helper.ps1
             "$<TARGET_FILE_DIR:pepenet-desktop>/resources/install-helper.ps1"
         COMMENT "Staging resources (fonts + install helper) next to the exe")
+
+    # Headless padlock service: same dns/tls/chain engines, no Sokol/UI.
+    add_executable(pepenet-web
+        src/web_svc.c
+        src/engine.c
+        src/platform_win.c
+        src/compat/win_compat.c
+        ${DESKTOP_ENGINE_SRCS}
+        ${DESKTOP_IDX_SRCS}
+    )
+    target_include_directories(pepenet-web BEFORE PRIVATE ${COMPAT_WIN_DIR})
+    target_link_options(pepenet-web PRIVATE -static)
+    target_link_libraries(pepenet-web PRIVATE
+        sqlite3 secp256k1 dns_embed tls_embed
+        ws2_32 crypt32 bcrypt advapi32 winhttp shell32 ole32 uuid user32
+    )
+    target_compile_definitions(pepenet-web PRIVATE
+        PEPENET_VERSION="${PEPENET_VERSION}")
+    set_target_properties(pepenet-web PROPERTIES OUTPUT_NAME "pepenet-web")
+    add_custom_command(TARGET pepenet-web POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/packaging/install-helper.ps1
+            "$<TARGET_FILE_DIR:pepenet-web>/install-helper.ps1"
+        COMMENT "Staging NRPT helper next to pepenet-web")
 elseif(APPLE)
     add_executable(pepenet-desktop MACOSX_BUNDLE
         ${DESKTOP_COMMON_SRCS}
@@ -426,3 +450,10 @@ target_include_directories(pepenet-desktop PRIVATE
     ${SOKOL_DIR}
     ${NUKLEAR_DIR}
 )
+if(WIN32)
+    target_include_directories(pepenet-web PRIVATE
+        ${IDX_DIR}
+        ${SECP256K1_DIR}/include
+        ${SM_ENGINE_DIR}
+    )
+endif()
