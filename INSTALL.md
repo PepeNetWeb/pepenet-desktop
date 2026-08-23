@@ -14,8 +14,16 @@ These docs currently track the **`linux` branch**.
 
 ### Windows
 
+PowerShell:
+
 ```powershell
 irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
+```
+
+Command Prompt (`cmd.exe`) — `irm` / `iex` are PowerShell cmdlets:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex"
 ```
 
 Downloads the latest `Windows-PepeNet-*.msi`, installs per-user (no admin)
@@ -23,10 +31,16 @@ into `%LOCALAPPDATA%\Programs\PepeNet`, starts `pepenet.exe --background`,
 and registers **logon autostart** (HKCU Run + a restarting AtLogOn scheduled
 task). Then **Enable web access** in DNS & Web (one UAC prompt, NRPT).
 
-Undo:
+Undo — PowerShell:
 
 ```powershell
 $env:PEPENET_UNINSTALL='1'; irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
+```
+
+Command Prompt:
+
+```bat
+set PEPENET_UNINSTALL=1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex"
 ```
 
 Or install the MSI from [Releases](https://github.com/PepeNetWeb/pepenet-desktop/releases) by hand.

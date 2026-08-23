@@ -18,8 +18,13 @@ drops down the wallet verbs + Settings (Send · Receive · Settings).
 Headless POSIX daemons: [pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/linux/INSTALL.md).
 
 ```powershell
-# Windows
+# Windows PowerShell
 irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
+```
+
+```bat
+:: Windows Command Prompt
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex"
 ```
 
 ## Build
