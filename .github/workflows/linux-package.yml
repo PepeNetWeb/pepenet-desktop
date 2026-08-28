@@ -1,0 +1,45 @@
+name: linux-package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the tarball to (created if missing)"
+        required: true
+        default: "0.2.2-linux"
+  release:
+    types: [published]
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential cmake pkg-config ninja-build \
+            libssl-dev libsqlite3-dev \
+            libx11-dev libxi-dev libxcursor-dev libgl1-mesa-dev \
+            libdbus-1-dev libsecret-1-dev
+      - name: Package
+        run: packaging/package-linux.sh
+      - name: Upload tarball
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${{ github.event.release.tag_name }}"; fi
+          if [ -z "$TAG" ]; then TAG="${GITHUB_REF_NAME}"; fi
+          FILE=$(ls dist/pepenet-*-linux-*.tar.gz | head -1)
+          echo "asset $FILE -> $TAG"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "PepeNet $TAG" \
+              --prerelease --notes "Linux tarball from the linux branch (OpenGL/X11)."
+          fi
+          gh release upload "$TAG" "$FILE" --clobber
