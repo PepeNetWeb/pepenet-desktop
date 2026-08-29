@@ -253,40 +253,56 @@ void sysinstall_loginitem_default(void) {
 static int userjs_flip(const char *profile_dir) {
     char uj[700];
     snprintf(uj, sizeof uj, "%s/user.js", profile_dir);
+    int has_ent = 0, has_trr = 0;
     FILE *f = fopen(uj, "r");
     if (f) {
         char line[512];
-        while (fgets(line, sizeof line, f))
-            if (strstr(line, "security.enterprise_roots.enabled")) {
-                fclose(f);
-                return 1;
-            }
+        while (fgets(line, sizeof line, f)) {
+            if (strstr(line, "security.enterprise_roots.enabled")) has_ent = 1;
+            if (strstr(line, "network.trr.excluded-domains")) has_trr = 1;
+        }
         fclose(f);
     }
+    if (has_ent && has_trr) return 1;
     f = fopen(uj, "a");
     if (!f) return 0;
-    fputs("user_pref(\"security.enterprise_roots.enabled\", true);\n", f);
+    if (!has_ent)
+        fputs("user_pref(\"security.enterprise_roots.enabled\", true);\n", f);
+    if (!has_trr)
+        fputs("user_pref(\"network.trr.excluded-domains\", \"" APP_TLD "\");\n", f);
     fclose(f);
     return 1;
 }
 
-int sysinstall_firefox_roots(void) {
-    char base[600];
-    const char *home = getenv("HOME");
-    snprintf(base, sizeof base, "%s/.mozilla/firefox",
-             home && home[0] ? home : ".");
+static int firefox_walk(const char *base) {
     DIR *d = opendir(base);
     if (!d) return 0;
     int n = 0;
     struct dirent *e;
     while ((e = readdir(d))) {
         if (e->d_name[0] == '.') continue;
-        char pd[700];
+        char pd[700], prefs[720], certdb[720];
         snprintf(pd, sizeof pd, "%s/%s", base, e->d_name);
         struct stat st;
-        if (stat(pd, &st) == 0 && S_ISDIR(st.st_mode) && userjs_flip(pd)) n++;
+        if (stat(pd, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+        snprintf(prefs, sizeof prefs, "%s/prefs.js", pd);
+        snprintf(certdb, sizeof certdb, "%s/cert9.db", pd);
+        if (stat(prefs, &st) != 0 && stat(certdb, &st) != 0) continue;
+        if (userjs_flip(pd)) n++;
     }
     closedir(d);
+    return n;
+}
+
+int sysinstall_firefox_roots(void) {
+    char base[600];
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) home = ".";
+    int n = 0;
+    snprintf(base, sizeof base, "%s/.mozilla/firefox", home);
+    n += firefox_walk(base);
+    snprintf(base, sizeof base, "%s/snap/firefox/common/.mozilla/firefox", home);
+    n += firefox_walk(base);
     return n;
 }
 

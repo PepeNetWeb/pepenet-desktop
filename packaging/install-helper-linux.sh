@@ -133,9 +133,9 @@ Wants=systemd-resolved.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=$SPLIT_FILE
--ExecStart=/usr/sbin/nft -f $NFT_FILE
+ExecStart=-/usr/sbin/nft -f $NFT_FILE
 ExecStop=$SPLIT_FILE stop
--ExecStop=/usr/sbin/nft delete table ip pepenet-$TLD
+ExecStop=-/usr/sbin/nft delete table ip pepenet-$TLD
 
 [Install]
 WantedBy=multi-user.target
