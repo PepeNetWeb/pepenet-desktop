@@ -253,23 +253,26 @@ void sysinstall_loginitem_default(void) {
 static int userjs_flip(const char *profile_dir) {
     char uj[700];
     snprintf(uj, sizeof uj, "%s/user.js", profile_dir);
-    int has_ent = 0, has_trr = 0;
+    int has_ent = 0, has_trr = 0, has_doh = 0;
     FILE *f = fopen(uj, "r");
     if (f) {
         char line[512];
         while (fgets(line, sizeof line, f)) {
             if (strstr(line, "security.enterprise_roots.enabled")) has_ent = 1;
             if (strstr(line, "network.trr.excluded-domains")) has_trr = 1;
+            if (strstr(line, "doh-rollout.mode")) has_doh = 1;
         }
         fclose(f);
     }
-    if (has_ent && has_trr) return 1;
+    if (has_ent && has_trr && has_doh) return 1;
     f = fopen(uj, "a");
     if (!f) return 0;
     if (!has_ent)
         fputs("user_pref(\"security.enterprise_roots.enabled\", true);\n", f);
     if (!has_trr)
         fputs("user_pref(\"network.trr.excluded-domains\", \"" APP_TLD "\");\n", f);
+    if (!has_doh)
+        fputs("user_pref(\"doh-rollout.mode\", 0);\n", f);
     fclose(f);
     return 1;
 }
@@ -302,6 +305,8 @@ int sysinstall_firefox_roots(void) {
     snprintf(base, sizeof base, "%s/.mozilla/firefox", home);
     n += firefox_walk(base);
     snprintf(base, sizeof base, "%s/snap/firefox/common/.mozilla/firefox", home);
+    n += firefox_walk(base);
+    snprintf(base, sizeof base, "%s/snap/firefox/current/.mozilla/firefox", home);
     n += firefox_walk(base);
     return n;
 }
