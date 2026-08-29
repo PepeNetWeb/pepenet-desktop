@@ -371,46 +371,64 @@ static void *net_main(void *arg) {
     snprintf(g.phase, sizeof g.phase, "mesh");
     dnsnet_init(g.st, g.orc, 0);
 
-    // dial list: the seed node (chain port) + crawl-discovered IDX_DNET_MARK
+    // dial list: the PepeNet seeds (chain port) + crawl-discovered IDX_DNET_MARK
     // peers. Default is dial-only (listen 0) — a NAT'd node gossips over its
     // outbound chain connections. Set `listen=<port>` (conf) or PEPENET_DNS_LISTEN
     // to accept inbound: the node then advertises the mark on the chain wire so
     // a peer's crawl classifies + dials it (requires the port be reachable/forwarded).
-    // The list is deduped by RESOLVED identity: the seed's harvested addr-book
-    // row (numeric ip, recorded at every sync handshake) IS the seed, and two
+    // The list is deduped by RESOLVED identity: a seed's harvested addr-book
+    // row (numeric ip, recorded at every sync handshake) IS that seed, and two
     // seats pointed at one machine spend the whole run dueling (dial →
-    // duplicate-drop → backoff). The seed entry stays in hostname form — the
-    // serve loop re-resolves it per dial, which is what tracks a DNS change —
-    // so its numeric twins are dropped here instead. If resolution fails (no
-    // network yet), sip stays empty, duplicates may seat, and idx_serve's
+    // duplicate-drop → backoff). Seed entries stay in hostname form — the
+    // serve loop re-resolves them per dial, which is what tracks a DNS change —
+    // so their numeric twins are dropped here instead. If resolution fails (no
+    // network yet), ip stays empty, duplicates may seat, and idx_serve's
     // per-ip park discipline collapses them after the first connect.
     char dial[1024]; int dl = 0;
-    dl += snprintf(dial + dl, sizeof dial - dl, "%s", APP_SEED_PEER);
-    char shost[80]; uint16_t sport;                   // seed host / port split
-    { snprintf(shost, sizeof shost, "%s", APP_SEED_PEER);
-      char *c = strrchr(shost, ':');
-      sport = idx_coin_port(g.coin);
-      if (c && !strchr(c, ']')) { *c = 0; sport = (uint16_t)atoi(c + 1); } }
-    char sip[64] = "";
-    { struct addrinfo h, *res = NULL; memset(&h, 0, sizeof h);
-      h.ai_family = AF_INET; h.ai_socktype = SOCK_STREAM;
-      if (getaddrinfo(shost, NULL, &h, &res) == 0 && res) {
-          inet_ntop(AF_INET, &((struct sockaddr_in *)res->ai_addr)->sin_addr, sip, sizeof sip);
-          freeaddrinfo(res);
+    struct { char host[80]; uint16_t port; char ip[64]; } seed[4];
+    int nseed = 0;
+    { char buf[256]; snprintf(buf, sizeof buf, "%s", APP_SEED_PEER);
+      uint16_t dport = idx_coin_port(g.coin);
+      for (char *sv = NULL, *t = strtok_r(buf, ",", &sv); t && nseed < 4; t = strtok_r(NULL, ",", &sv)) {
+          snprintf(seed[nseed].host, sizeof seed[nseed].host, "%s", t);
+          seed[nseed].port = dport;
+          char *c = strrchr(seed[nseed].host, ':');
+          if (c && !strchr(c, ']')) { *c = 0; seed[nseed].port = (uint16_t)atoi(c + 1); }
+          seed[nseed].ip[0] = 0;
+          struct addrinfo h, *res = NULL; memset(&h, 0, sizeof h);
+          h.ai_family = AF_INET; h.ai_socktype = SOCK_STREAM;
+          if (getaddrinfo(seed[nseed].host, NULL, &h, &res) == 0 && res) {
+              inet_ntop(AF_INET, &((struct sockaddr_in *)res->ai_addr)->sin_addr,
+                        seed[nseed].ip, sizeof seed[nseed].ip);
+              freeaddrinfo(res);
+          }
+          dl += snprintf(dial + dl, sizeof dial - dl, "%s%s", dl ? "," : "", t);
+          nseed++;
       } }
-    char seedaddr[96]; snprintf(seedaddr, sizeof seedaddr, "%s:%u", sip, sport);
     for (int i = 0; i < g.n_peers && dl < (int)sizeof dial - 96; i++) {
-        if (!strcmp(g.peers[i].host, shost) ||
-            (sip[0] && g.peers[i].port == sport && !strcmp(g.peers[i].host, sip))) continue;
-        dl += snprintf(dial + dl, sizeof dial - dl, ",%s:%u", g.peers[i].host, g.peers[i].port);
+        int skip = 0;
+        for (int s = 0; s < nseed; s++)
+            if (!strcmp(g.peers[i].host, seed[s].host) ||
+                (seed[s].ip[0] && g.peers[i].port == seed[s].port &&
+                 !strcmp(g.peers[i].host, seed[s].ip))) { skip = 1; break; }
+        if (skip) continue;
+        dl += snprintf(dial + dl, sizeof dial - dl, "%s%s:%u", dl ? "," : "",
+                       g.peers[i].host, g.peers[i].port);
     }
     { sqlite3 *cdb = idx_db_open(g.chain_db);
       if (cdb) {
           idx_db_peers_scrub(cdb);   // pre-fix hostname rows must not seed dials
           char dn[8][80]; int nd = idx_db_peers_agent(cdb, IDX_DNET_MARK, dn, 8);
           for (int i = 0; i < nd && dl < (int)sizeof dial - 84; i++) {
-              if (sip[0] && !strcmp(dn[i], seedaddr)) continue;   // the seed again, by ip
-              dl += snprintf(dial + dl, sizeof dial - dl, ",%s", dn[i]);
+              int skip = 0;
+              for (int s = 0; s < nseed; s++) {
+                  char seedaddr[96];
+                  if (!seed[s].ip[0]) continue;
+                  snprintf(seedaddr, sizeof seedaddr, "%s:%u", seed[s].ip, seed[s].port);
+                  if (!strcmp(dn[i], seedaddr)) { skip = 1; break; }
+              }
+              if (skip) continue;   // a seed again, by ip
+              dl += snprintf(dial + dl, sizeof dial - dl, "%s%s", dl ? "," : "", dn[i]);
           }
           idx_db_close(cdb);
       } }

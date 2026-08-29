@@ -36,7 +36,7 @@ set(CMAKE_C_STANDARD 11)
 # the bundle/Info.plist, the Windows version block (pepenet.rc.in), the P2P
 # subver (appconf.h APP_CHAIN_AGENT), the in-app update check (update.c), and
 # both package scripts (they sed it out of this file).
-set(PEPENET_VERSION "0.2.1")
+set(PEPENET_VERSION "0.2.2")
 
 if(WIN32)
     # MinGW gates localtime_r/gmtime_r behind this; harmless everywhere else

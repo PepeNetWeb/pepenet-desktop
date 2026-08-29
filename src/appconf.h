@@ -40,11 +40,13 @@
 // ── chain ────────────────────────────────────────────────────────────────────
 #define APP_COIN        "pep"           // coin id: data files + base58 table key
 #define APP_COIN_GLYPH  "\xE2\xB1\xA3"  // Ᵽ U+2C63 (needs a face merge, theme.c)
-#define APP_SEED_PEER   "pepenet.shibpost.com"  // preferred chain-sync peer AND the serve
-                                        // loop's first dial. The indexer falls through
-                                        // to cached last-good peers + the chain's DNS
-                                        // seeds when it's down. On the machine the name
-                                        // points AT, the self-connect guard drops it
+#define APP_SEED_PEER   "pepenet.shibpost.com,net.pepecoin.services"
+                                        // PepeNet seeds (comma-separated): preferred
+                                        // chain-sync peers AND the serve loop's first
+                                        // dials. The indexer falls through to cached
+                                        // last-good peers + the chain's DNS seeds when
+                                        // they're down. On a machine a name points AT,
+                                        // the self-connect guard drops that entry
                                         // (idx_self_seed) and addrman-style selection
                                         // (chain_topup) keeps ~8 outbound peers instead;
                                         // pin an explicit upstream with conf `peer=` if
