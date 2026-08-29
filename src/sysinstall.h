@@ -62,7 +62,8 @@ int  sysinstall_web_wanted(void);
 void sysinstall_web_set(int on);
 
 // Start hidden (tray only) on every launch — the --background behavior as a
-// user setting instead of a login-agent argv detail.
+// user setting instead of a login-agent argv detail. Default ON; opt out by
+// writing fgstart-<tld> (legacy bgstart-<tld> was the opt-in and is ignored).
 int  sysinstall_bgstart_state(void);
 void sysinstall_bgstart_set(int on);
 

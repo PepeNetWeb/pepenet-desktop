@@ -245,8 +245,8 @@ static void apply_open_hook(void) {
 }
 
 static void init(void) {
-    // Settings' "start in background" = --background without the argv: every
-    // launch opens to the tray until the user asks for a window
+    // Settings' "start in background" (default ON) = --background without
+    // the argv: every launch opens to the tray until the user asks for a window
     if (!S.demo && !S.background && sysinstall_bgstart_state())
         S.background = 1;
     // A --background spawn racing a live instance: launchd fires a RunAtLoad

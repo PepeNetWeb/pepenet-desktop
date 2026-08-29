@@ -362,23 +362,27 @@ void sysinstall_web_set(int on) {
     if (f) { fputc(on ? '1' : '0', f); fclose(f); }
 }
 
-static const char *bgstart_path(char *buf, size_t cap) {
+static const char *fgstart_path(char *buf, size_t cap) {
+    return platform_data_path("fgstart-" APP_TLD, buf, cap);
+}
+static const char *bgstart_legacy(char *buf, size_t cap) {
     return platform_data_path("bgstart-" APP_TLD, buf, cap);
 }
 
 int sysinstall_bgstart_state(void) {
     char p[512];
     struct stat st;
-    return stat(bgstart_path(p, sizeof p), &st) == 0;
+    return stat(fgstart_path(p, sizeof p), &st) != 0;   // default ON
 }
 
 void sysinstall_bgstart_set(int on) {
     char p[512];
+    remove(bgstart_legacy(p, sizeof p));
     if (on) {
-        FILE *f = fopen(bgstart_path(p, sizeof p), "w");
-        if (f) { fputs("1\n", f); fclose(f); }
+        remove(fgstart_path(p, sizeof p));
     } else {
-        remove(bgstart_path(p, sizeof p));
+        FILE *f = fopen(fgstart_path(p, sizeof p), "w");
+        if (f) { fputs("1\n", f); fclose(f); }
     }
 }
 
