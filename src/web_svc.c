@@ -19,7 +19,9 @@
 #include "dnsnet.h"
 #include "webproxy.h"
 #include "indexer.h"
-#include "ca.h"
+/* Forward declare — ca.h pulls openssl/sha.h, which collides with the
+ * protocol SM's SHA256_CTX in indexer.h / sha256.h. */
+const char *ca_root_cert_path(void);
 
 #include <stdio.h>
 #include <stdlib.h>
