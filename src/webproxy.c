@@ -82,7 +82,12 @@ static void ev_verdict(void *u, const char *sni, int dane_ok, const char *origin
     pthread_mutex_unlock(&g.mu);
 }
 
-static const ProxyEvents EV = { ev_minted, ev_verdict, NULL };
+static void ev_sync(void *u, int64_t *h, int64_t *ph) {
+    (void)u;
+    resolver_sync(g.rv, h, ph);
+}
+
+static const ProxyEvents EV = { .minted = ev_minted, .verdict = ev_verdict, .sync = ev_sync };
 
 static void *proxy_main(void *arg) {
     (void)arg;

@@ -11,7 +11,7 @@
  * drags in libssl/libcrypto, sqlite, the DANE + DNS stack and the Objective-C
  * platform layer): ca_set_tld/ca_set_dir/ca_set_name/ca_root_ensure (the root
  * CA is never touched — opaque non-NULL pointers are handed back),
- * resolver_open/close/resolve (an opaque handle), sscert_* (unused here),
+ * resolver_open/close/resolve/sync (an opaque handle), sscert_* (unused here),
  * platform_data_dir/platform_data_path (a scratch dir under /tmp), and the two
  * that matter:
  *   - proxy_listen()     : a byte-for-byte reimplementation of tls/src/proxy.c's
@@ -596,6 +596,11 @@ Resolver *resolver_open(const char *suffix, const char *store, const char *idx) 
 void resolver_close(Resolver *r) { (void)r; }
 int resolver_resolve(const char *sni, OriginInfo *out, void *ud) {
     (void)sni; (void)out; (void)ud; return 0;
+}
+void resolver_sync(Resolver *r, int64_t *height, int64_t *peer_height) {
+    (void)r;
+    if (height) *height = 0;
+    if (peer_height) *peer_height = 0;
 }
 
 int sscert_ensure(const char *f, const char *c, const char *k, int w,

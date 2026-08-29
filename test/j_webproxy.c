@@ -674,6 +674,11 @@ void resolver_close(Resolver *r) { (void)r; }
 int resolver_resolve(const char *sni, OriginInfo *out, void *ud) {
     (void)sni; (void)out; (void)ud; return 0;
 }
+void resolver_sync(Resolver *r, int64_t *height, int64_t *peer_height) {
+    (void)r;
+    if (height) *height = 0;
+    if (peer_height) *peer_height = 0;
+}
 
 int sscert_ensure(const char *f, const char *c, const char *k, int w,
                   uint8_t s[32], int *cr) {
