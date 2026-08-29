@@ -18,13 +18,19 @@
 #include "engine.h"
 #include "dnsnet.h"
 #include "webproxy.h"
-#include "indexer.h"
 #include "ca.h"
+#include "wallet.h"             // DeskWallet WLT — dnsnet publish path
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <direct.h>
+
+/* Do not include indexer.h here: it pulls protocol sha256.h's SHA256_CTX,
+ * and ca.h pulls OpenSSL's. The two typedefs collide under MinGW. */
+extern const char *idx_sync_agent;
+
+DeskWallet WLT;                 // zeroed: this service has no wallet
 
 #define SVC_NAME "PepeNetWeb"
 #define SVC_DISP "PepeNet web (DNS + DANE proxy)"

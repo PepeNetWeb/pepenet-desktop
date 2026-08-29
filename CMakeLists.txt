@@ -316,6 +316,8 @@ if(WIN32)
     add_executable(pepenet-web
         src/web_svc.c
         src/engine.c
+        src/fee.c
+        src/zonekey.c
         src/platform_win.c
         src/compat/win_compat.c
         ${DESKTOP_ENGINE_SRCS}
