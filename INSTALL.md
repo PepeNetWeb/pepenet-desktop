@@ -130,7 +130,7 @@ and exits; it never starts this app.
 | OS | Trust | DNS / browser path | `:443` | Elevation | Helper |
 |---|---|---|---|---|---|
 | macOS | login keychain (GUI auth = consent) | `/etc/resolver/pepe` + PAC (`networksetup`) | pf rdr → `:8445` (best-effort; PAC is primary) | one admin prompt (`osascript`) | `packaging/install-helper.sh` |
-| Linux | optional `~/.pki/nssdb` + system CA (`update-ca-certificates`) | systemd-resolved `~pepe` on `lo` + GNOME/KDE PAC | nftables rdr → `:8445` (best-effort) | pkexec if present, else sudo | `packaging/install-helper-linux.sh` |
+| Linux | optional `~/.pki/nssdb` + system CA (`update-ca-certificates`) | systemd-resolved `~pepe` on dummy `pn-pepe` + GNOME/KDE PAC | nftables rdr → `:8445` (best-effort) | pkexec if present, else sudo | `packaging/install-helper-linux.sh` |
 | Windows | current-user Root store (OS warning = consent) | NRPT `.<tld>` + HKCU PAC | app binds `:443` directly | UAC for NRPT only | `packaging/install-helper.ps1` |
 
 PAC (`http://127.0.0.1:8444/proxy.pac`) is the **primary** browser route on

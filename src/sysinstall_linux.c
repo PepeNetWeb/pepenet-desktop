@@ -161,7 +161,7 @@ static int probe_ca(void) {
 }
 
 static int probe_resolver(void) {
-    return cmd_ok("resolvectl domain lo 2>/dev/null | grep -q '" APP_TLD "'");
+    return cmd_ok("resolvectl domain pn-" APP_TLD " 2>/dev/null | grep -q '" APP_TLD "'");
 }
 
 static int probe_nft(void) {

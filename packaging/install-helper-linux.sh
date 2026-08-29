@@ -5,8 +5,8 @@
 #   1. system CA store (update-ca-certificates / update-ca-trust) so p11-kit,
 #      Chromium, Firefox enterprise-roots, and curl all see the name-constrained
 #      root. The unprivileged NSS db is done in-process (trust_install).
-#   2. systemd-resolved split-DNS on lo: *.<tld> → 127.0.0.1:<dns-port>. Must
-#      NOT replace the box's global resolvers (never a global DNS=).
+#   2. systemd-resolved split-DNS on dummy pn-<tld> (not lo): *.<tld> →
+#      127.0.0.1:<dns-port>. Must NOT replace the box's global resolvers.
 #   3. nftables rdr 127.0.0.1:443 → :<proxy-port> — best-effort legacy route
 #      (PAC is the PRIMARY browser path and is unprivileged, in-process).
 #
@@ -34,6 +34,9 @@ UNIT="pepenet-web-$TLD.service"
 UNIT_PATH="/etc/systemd/system/$UNIT"
 NFT_DIR="/etc/pepenet"
 NFT_FILE="$NFT_DIR/nft-$TLD.nft"
+IFACE="pn-$TLD"
+SPLIT_FILE="$NFT_DIR/split-dns-$TLD.sh"
+NM_UNMANAGED="/etc/NetworkManager/conf.d/pepenet-$TLD-unmanaged.conf"
 CA_DEB="/usr/local/share/ca-certificates/pepenet-$TLD.crt"
 CA_FED="/etc/pki/ca-trust/source/anchors/pepenet-$TLD.crt"
 
@@ -79,20 +82,59 @@ table ip pepenet-$TLD {
 EOF
 }
 
+write_split_dns() {
+    mkdir -p "$NFT_DIR"
+    cat > "$SPLIT_FILE" <<EOF
+#!/bin/sh
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+IFACE=$IFACE
+ADDR=169.254.7.53/32
+DNS=$LOOPBACK:$DNS_PORT
+DOMAIN=~$TLD
+NM_CONF=$NM_UNMANAGED
+case "\${1:-apply}" in
+stop)
+    resolvectl revert "\$IFACE" >/dev/null 2>&1 || true
+    resolvectl revert lo >/dev/null 2>&1 || true
+    ip link del "\$IFACE" >/dev/null 2>&1 || true
+    rm -f "\$NM_CONF"
+    command -v nmcli >/dev/null 2>&1 && nmcli general reload >/dev/null 2>&1 || true
+    ;;
+*)
+    if [ -d /etc/NetworkManager/conf.d ]; then
+        printf '[keyfile]\\nunmanaged-devices=interface-name:%s\\n' "\$IFACE" > "\$NM_CONF"
+        command -v nmcli >/dev/null 2>&1 && nmcli general reload >/dev/null 2>&1 || true
+    fi
+    if ! ip link show "\$IFACE" >/dev/null 2>&1; then
+        modprobe dummy >/dev/null 2>&1 || true
+        ip link add "\$IFACE" type dummy
+    fi
+    ip addr replace "\$ADDR" dev "\$IFACE"
+    ip link set "\$IFACE" up
+    resolvectl revert lo >/dev/null 2>&1 || true
+    resolvectl dns "\$IFACE" "\$DNS"
+    resolvectl domain "\$IFACE" "\$DOMAIN"
+    resolvectl default-route "\$IFACE" false >/dev/null 2>&1 || true
+    ;;
+esac
+EOF
+    chmod 755 "$SPLIT_FILE"
+}
+
 write_unit() {
     cat > "$UNIT_PATH" <<EOF
 [Unit]
 Description=PepeNet .$TLD split-DNS + loopback :443 redirect
-After=systemd-resolved.service
+After=systemd-resolved.service NetworkManager.service
 Wants=systemd-resolved.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/resolvectl dns lo $LOOPBACK:$DNS_PORT
-ExecStart=/usr/bin/resolvectl domain lo ~$TLD
+ExecStart=$SPLIT_FILE
 -ExecStart=/usr/sbin/nft -f $NFT_FILE
--ExecStop=/usr/bin/resolvectl revert lo
+ExecStop=$SPLIT_FILE stop
 -ExecStop=/usr/sbin/nft delete table ip pepenet-$TLD
 
 [Install]
@@ -105,10 +147,10 @@ install)
     [ "$(id -u)" = "0" ] || { echo "install needs root" >&2; exit 1; }
     ca_install
     write_nft
+    write_split_dns
     write_unit
-    if command -v resolvectl >/dev/null 2>&1; then
-        resolvectl dns lo "$LOOPBACK:$DNS_PORT" || echo "[WARN] resolvectl dns lo failed" >&2
-        resolvectl domain lo "~$TLD" || echo "[WARN] resolvectl domain lo failed" >&2
+    if [ -x "$SPLIT_FILE" ]; then
+        "$SPLIT_FILE" || echo "[WARN] split-DNS apply failed" >&2
     fi
     if command -v nft >/dev/null 2>&1; then
         nft delete table ip pepenet-$TLD >/dev/null 2>&1 || true
@@ -125,7 +167,8 @@ uninstall)
     [ "$(id -u)" = "0" ] || { echo "uninstall needs root" >&2; exit 1; }
     ca_uninstall
     command -v systemctl >/dev/null 2>&1 && systemctl disable --now "$UNIT" >/dev/null 2>&1 || true
-    rm -f "$UNIT_PATH" "$NFT_FILE"
+    [ -x "$SPLIT_FILE" ] && "$SPLIT_FILE" stop || true
+    rm -f "$UNIT_PATH" "$NFT_FILE" "$SPLIT_FILE" "$NM_UNMANAGED"
     rmdir "$NFT_DIR" 2>/dev/null || true
     command -v resolvectl >/dev/null 2>&1 && resolvectl revert lo 2>/dev/null || true
     command -v nft >/dev/null 2>&1 && nft delete table ip pepenet-$TLD 2>/dev/null || true
@@ -134,7 +177,7 @@ uninstall)
     ;;
 status)
     [ -f "$CA_DEB" ] || [ -f "$CA_FED" ] && echo "ca=1" || echo "ca=0"
-    if command -v resolvectl >/dev/null 2>&1 && resolvectl domain lo 2>/dev/null | grep -q "$TLD"; then
+    if command -v resolvectl >/dev/null 2>&1 && resolvectl domain "$IFACE" 2>/dev/null | grep -q "$TLD"; then
         echo "resolver=1"
     else
         echo "resolver=0"
