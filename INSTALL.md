@@ -4,9 +4,9 @@ The GUI client: wallet, names, Discover, and the dns/tls stack **in-process**.
 A stock browser padlock still needs a one-time **Enable web access**.
 
 Headless POSIX daemons (`dnsd` + `pepenet-tls` as boot services):  
-[pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/linux/INSTALL.md).
+[pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/main/INSTALL.md).
 
-These docs currently track the **`linux` branch**.
+These docs track **`main`**.
 
 ---
 
@@ -20,18 +20,18 @@ Same one-liner as pepenet-tls: installs **`pepenet-web.exe`** as service
 PowerShell (admin UAC):
 
 ```powershell
-irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
+irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/main/install.ps1 | iex
 ```
 
 Command Prompt:
 
 ```bat
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/main/install.ps1 | iex"
 ```
 
 `pepenet-web` is this repo’s WIN32 target (chain sync + resolver + DANE
-proxy, no Sokol). A GitHub MSI must contain `pepenet-web.exe` (linux-branch
-WiX). Until then, build it and pass the path:
+proxy, no Sokol). A GitHub MSI must contain `pepenet-web.exe` (the 0.2.0
+GUI-only MSI is not enough). Until then, build it and pass the path:
 
 ```
 cmake --build build-win --target pepenet-web
@@ -46,11 +46,11 @@ you want the tray client instead of the service.
 Undo:
 
 ```powershell
-$env:PEPENET_UNINSTALL='1'; irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
+$env:PEPENET_UNINSTALL='1'; irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/main/install.ps1 | iex
 ```
 
 ```bat
-set PEPENET_UNINSTALL=1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex"
+set PEPENET_UNINSTALL=1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/main/install.ps1 | iex"
 ```
 
 ### macOS / Linux — padlock daemon, no GUI
@@ -58,7 +58,7 @@ set PEPENET_UNINSTALL=1 && powershell -NoProfile -ExecutionPolicy Bypass -Comman
 If you only want `https://*.pepe` and not the wallet:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/get.sh | bash
+curl -fsSL https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/main/get.sh | bash
 ```
 
 That is **not** this app. It builds `dnsd` + `pepenet-tls` and installs boot
@@ -73,7 +73,6 @@ There is no GUI one-liner yet (no Linux tarball on GitHub Releases). Build:
 ```sh
 git clone --recurse-submodules https://github.com/PepeNetWeb/pepenet-desktop.git
 cd pepenet-desktop
-git checkout linux    # until merged to main
 git submodule update --init --recursive
 cmake -B build && cmake --build build
 ./build/pepenet.app/Contents/MacOS/pepenet --demo
@@ -91,7 +90,6 @@ sudo apt install build-essential cmake pkg-config \
 # optional: libnss3-tools  (user NSS db via certutil)
 git clone --recurse-submodules https://github.com/PepeNetWeb/pepenet-desktop.git
 cd pepenet-desktop
-git checkout linux
 git submodule update --init --recursive
 cmake -B build && cmake --build build
 ./build/pepenet --demo

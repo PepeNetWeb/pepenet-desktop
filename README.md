@@ -15,16 +15,16 @@ DNS & Web — are tabs on a persistent strip; the balance chip at its right end
 drops down the wallet verbs + Settings (Send · Receive · Settings).
 
 **Install (one-liners, Enable web access, packaging):** [`INSTALL.md`](INSTALL.md).
-Headless POSIX daemons: [pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/linux/INSTALL.md).
+Headless POSIX daemons: [pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/main/INSTALL.md).
 
 ```powershell
 # Windows PowerShell — pepenet-web service (headless padlock), not the GUI
-irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex
+irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/main/install.ps1 | iex
 ```
 
 ```bat
 :: Windows Command Prompt
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/linux/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/PepeNetWeb/pepenet-tls/main/install.ps1 | iex"
 ```
 
 ## Build
