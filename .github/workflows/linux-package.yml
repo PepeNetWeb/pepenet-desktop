@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach the tarball to (created if missing)"
-        required: true
-        default: "0.2.2-linux"
+        description: "Release tag to attach the tarball to (empty = artifact only)"
+        required: false
+        default: ""
   release:
     types: [published]
 
@@ -29,7 +29,13 @@ jobs:
             libdbus-1-dev libsecret-1-dev
       - name: Package
         run: packaging/package-linux.sh
-      - name: Upload tarball
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pepenet-linux
+          path: dist/pepenet-*-linux-*.tar.gz
+      - name: Attach to GitHub release
+        if: ${{ github.event_name == 'release' || github.event.inputs.tag != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -40,6 +46,6 @@ jobs:
           echo "asset $FILE -> $TAG"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --target "$GITHUB_SHA" --title "PepeNet $TAG" \
-              --prerelease --notes "Linux tarball from the linux branch (OpenGL/X11)."
+              --prerelease --notes "Linux tarball (OpenGL/X11)."
           fi
           gh release upload "$TAG" "$FILE" --clobber

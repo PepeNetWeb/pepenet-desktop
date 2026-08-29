@@ -51,7 +51,8 @@ fi
 codesign --verify --verbose "$APP" || true
 
 echo "==> Staging .dmg contents"
-rm -rf "$DIST"
+# Keep sibling artifacts (Windows MSI, Linux tarball). Only replace this dmg's stage.
+rm -rf "$DIST/stage"
 mkdir -p "$DIST/stage"
 cp -R "$APP" "$DIST/stage/"
 ln -s /Applications "$DIST/stage/Applications"
