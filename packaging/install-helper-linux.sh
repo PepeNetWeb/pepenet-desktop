@@ -9,6 +9,8 @@
 #      127.0.0.1:<dns-port>. Must NOT replace the box's global resolvers.
 #   3. nftables rdr 127.0.0.1:443 → :<proxy-port> — best-effort legacy route
 #      (PAC is the PRIMARY browser path and is unprivileged, in-process).
+#   4. Snap Firefox: copy the PEM under /etc/firefox/policies (the sandbox can
+#      read that, not the host p11-kit store) and exclude .<tld> from DoH.
 #
 #   install-helper-linux.sh install   <tld> --dns-port N --proxy-port N --pac-port N --cert PATH
 #   install-helper-linux.sh uninstall <tld>
@@ -122,6 +124,102 @@ EOF
     chmod 755 "$SPLIT_FILE"
 }
 
+# Same plant as pepenet-tls/install-linux.sh. Snap Firefox ignores the host
+# CA store; /etc/firefox is visible via firefox:etc-firefox.
+firefox_policies() {
+    [ -n "$CERT" ] && [ -f "$CERT" ] || return 0
+    mkdir -p /etc/firefox/policies/certificates
+    cp "$CERT" "/etc/firefox/policies/certificates/pepenet-$TLD.crt"
+    chmod 644 "/etc/firefox/policies/certificates/pepenet-$TLD.crt"
+    POL=/etc/firefox/policies/policies.json
+    CERT_POL="/etc/firefox/policies/certificates/pepenet-$TLD.crt"
+    if command -v python3 >/dev/null 2>&1; then
+        CERT_POL="$CERT_POL" TLD="$TLD" POL="$POL" python3 - <<'PY'
+import json, os
+path, cert, tld = os.environ["POL"], os.environ["CERT_POL"], os.environ["TLD"]
+data = {"policies": {}}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        data = {"policies": {}}
+p = data.setdefault("policies", {})
+certs = p.setdefault("Certificates", {})
+certs["ImportEnterpriseRoots"] = True
+inst = certs.setdefault("Install", [])
+if cert not in inst:
+    inst.append(cert)
+doh = p.setdefault("DNSOverHTTPS", {})
+if "Enabled" not in doh:
+    doh["Enabled"] = True
+ex = doh.setdefault("ExcludedDomains", [])
+if tld not in ex:
+    ex.append(tld)
+doh["Fallback"] = True
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PY
+    else
+        cat > "$POL" <<EOF
+{
+  "policies": {
+    "Certificates": {
+      "ImportEnterpriseRoots": true,
+      "Install": ["$CERT_POL"]
+    },
+    "DNSOverHTTPS": {
+      "Enabled": true,
+      "ExcludedDomains": ["$TLD"],
+      "Fallback": true
+    }
+  }
+}
+EOF
+    fi
+}
+
+firefox_policies_uninstall() {
+    rm -f "/etc/firefox/policies/certificates/pepenet-$TLD.crt"
+    POL=/etc/firefox/policies/policies.json
+    [ -f "$POL" ] && command -v python3 >/dev/null 2>&1 || return 0
+    CERT_POL="/etc/firefox/policies/certificates/pepenet-$TLD.crt" TLD="$TLD" POL="$POL" python3 - <<'PY'
+import json, os
+path, cert, tld = os.environ["POL"], os.environ["CERT_POL"], os.environ["TLD"]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    raise SystemExit
+p = data.get("policies") or {}
+certs = p.get("Certificates") or {}
+inst = [x for x in certs.get("Install") or [] if x != cert]
+if inst:
+    certs["Install"] = inst
+    p["Certificates"] = certs
+else:
+    p.pop("Certificates", None)
+doh = p.get("DNSOverHTTPS") or {}
+ex = [x for x in doh.get("ExcludedDomains") or [] if x != tld]
+if ex:
+    doh["ExcludedDomains"] = ex
+    p["DNSOverHTTPS"] = doh
+elif doh:
+    doh.pop("ExcludedDomains", None)
+    if list(doh.keys()) <= {"Enabled", "Fallback"}:
+        p.pop("DNSOverHTTPS", None)
+data["policies"] = p
+if p:
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+else:
+    os.remove(path)
+PY
+}
+
 write_unit() {
     cat > "$UNIT_PATH" <<EOF
 [Unit]
@@ -161,6 +259,7 @@ install)
         systemctl enable --now "$UNIT" >/dev/null 2>&1 || \
             echo "[WARN] systemctl enable $UNIT failed" >&2
     fi
+    firefox_policies
     echo "installed resolver+CA(+nft) for .$TLD"
     ;;
 uninstall)
@@ -173,6 +272,7 @@ uninstall)
     command -v resolvectl >/dev/null 2>&1 && resolvectl revert lo 2>/dev/null || true
     command -v nft >/dev/null 2>&1 && nft delete table ip pepenet-$TLD 2>/dev/null || true
     command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload || true
+    firefox_policies_uninstall
     echo "removed resolver+CA(+nft) for .$TLD"
     ;;
 status)
