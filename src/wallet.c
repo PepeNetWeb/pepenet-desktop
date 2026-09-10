@@ -694,13 +694,15 @@ static int claim_precheck(const char *dbpath, const uint8_t commitment[32],
                           const char *name, int *owned, int *expired) {
     *owned = 0; *expired = 0;
     sqlite3 *db = idx_db_open(dbpath); if (!db) return 0;
-    sqlite3_stmt *st; int found = 0; int64_t commit_time = 0, tip_time = 0;
-    sqlite3_prepare_v2(db, "SELECT commit_time FROM commits WHERE commitment=?", -1, &st, NULL);
-    sqlite3_bind_blob(st, 1, commitment, 32, SQLITE_STATIC);
-    if (sqlite3_step(st) == SQLITE_ROW) { commit_time = sqlite3_column_int64(st, 0); found = 1; }
-    sqlite3_finalize(st);
-    sqlite3_prepare_v2(db, "SELECT time FROM blocks ORDER BY height DESC LIMIT 1", -1, &st, NULL);
-    if (sqlite3_step(st) == SQLITE_ROW) tip_time = sqlite3_column_int64(st, 0);
+    sqlite3_stmt *st = NULL; int found = 0; int64_t commit_time = 0, tip_time = 0;
+    if (sqlite3_prepare_v2(db, "SELECT commit_time FROM commits WHERE commitment=?", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_blob(st, 1, commitment, 32, SQLITE_STATIC);
+        if (sqlite3_step(st) == SQLITE_ROW) { commit_time = sqlite3_column_int64(st, 0); found = 1; }
+    }
+    sqlite3_finalize(st); st = NULL;
+    if (sqlite3_prepare_v2(db, "SELECT time FROM blocks ORDER BY height DESC LIMIT 1", -1, &st, NULL) == SQLITE_OK) {
+        if (sqlite3_step(st) == SQLITE_ROW) tip_time = sqlite3_column_int64(st, 0);
+    }
     sqlite3_finalize(st);
     IdxNameRow r;
     if (idx_db_name_row(db, name, &r)) *owned = 1;
@@ -715,9 +717,10 @@ static int claim_precheck(const char *dbpath, const uint8_t commitment[32],
 // skewed local clock. Returns 0 if the db has no blocks (can't judge → caller warns).
 static int64_t db_tip_mtp(const char *dbpath) {
     sqlite3 *db = idx_db_open(dbpath); if (!db) return 0;
-    sqlite3_stmt *st; int64_t ts[11]; int n = 0;
-    sqlite3_prepare_v2(db, "SELECT time FROM blocks ORDER BY height DESC LIMIT 11", -1, &st, NULL);
-    while (sqlite3_step(st) == SQLITE_ROW && n < 11) ts[n++] = sqlite3_column_int64(st, 0);
+    sqlite3_stmt *st = NULL; int64_t ts[11]; int n = 0;
+    if (sqlite3_prepare_v2(db, "SELECT time FROM blocks ORDER BY height DESC LIMIT 11", -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW && n < 11) ts[n++] = sqlite3_column_int64(st, 0);
+    }
     sqlite3_finalize(st); idx_db_close(db);
     if (n == 0) return 0;
     for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++)
@@ -1149,10 +1152,11 @@ static int bits_and_anchor(const Wallet *w, const SwlReq *req, SwlRes *res,
     uint8_t tiph[32];
     int have_tip = idx_db_load_sync(db, &tip, tiph);
     int64_t last_mut = 0;                    // anchor guard: last_mut ≤ H ≤ confirm
-    sqlite3_stmt *st;
-    sqlite3_prepare_v2(db, "SELECT height FROM muts WHERE owner=?", -1, &st, NULL);
-    sqlite3_bind_blob(st, 1, w->h160, 20, SQLITE_STATIC);
-    if (sqlite3_step(st) == SQLITE_ROW) last_mut = sqlite3_column_int64(st, 0);
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(db, "SELECT height FROM muts WHERE owner=?", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_blob(st, 1, w->h160, 20, SQLITE_STATIC);
+        if (sqlite3_step(st) == SQLITE_ROW) last_mut = sqlite3_column_int64(st, 0);
+    }
     sqlite3_finalize(st);
     idx_db_close(db);
     if (mf.found != req->nnames || !have_tip)

@@ -162,6 +162,8 @@ void engine_stop(void) {
     g.crawl_stop = 1;            // wind down a walk that's mid-flight
     idx_sync_stop = 1;           // wind down a pass that's mid-flight
     pthread_join(g.th, NULL);
+    memset(&g.th, 0, sizeof g.th);
+    g.running = 0;
     idx_sync_stop = 0;
     if (g_read) { idx_db_close(g_read); g_read = NULL; }
 }
@@ -169,6 +171,11 @@ void engine_stop(void) {
 static sqlite3 *read_db(void) {
     if (!g_read) g_read = idx_db_open(g.dbpath);
     return g_read;
+}
+
+static const char *col_text(sqlite3_stmt *st, int i) {
+    const char *s = (const char *)sqlite3_column_text(st, i);
+    return s ? s : "";
 }
 
 // ── dev-wallet plumbing ──────────────────────────────────────────────────────
@@ -278,7 +285,7 @@ int engine_market_mine(const uint8_t h160[20], EngineName *out, int max) {
         if (s != SM_OFFERED && s != SM_RESERVED) continue;   // stale buyer column
         EngineName *e = &out[n++];
         memset(e, 0, sizeof *e);
-        snprintf(e->name, sizeof e->name, "%s", sqlite3_column_text(st, 0));
+        snprintf(e->name, sizeof e->name, "%s", col_text(st, 0));
         e->st = s;
         e->lease_expiry = sqlite3_column_int64(st, 2);
         e->price = (uint64_t)sqlite3_column_int64(st, 3);
@@ -304,7 +311,7 @@ int engine_listings(EngineName *out, int max) {
     while (n < max && sqlite3_step(st) == SQLITE_ROW) {
         EngineName *e = &out[n++];
         memset(e, 0, sizeof *e);
-        snprintf(e->name, sizeof e->name, "%s", sqlite3_column_text(st, 0));
+        snprintf(e->name, sizeof e->name, "%s", col_text(st, 0));
         e->st = sqlite3_column_int(st, 1);
         e->lease_expiry = sqlite3_column_int64(st, 2);
         e->price = (uint64_t)sqlite3_column_int64(st, 3);
@@ -370,8 +377,8 @@ int engine_peers(EnginePeer *out, int max, int *total, int *pepenet) {
     while (n < max && sqlite3_step(st) == SQLITE_ROW) {
         EnginePeer *p = &out[n++];
         memset(p, 0, sizeof *p);
-        snprintf(p->addr, sizeof p->addr, "%s", sqlite3_column_text(st, 0));
-        snprintf(p->agent, sizeof p->agent, "%s", sqlite3_column_text(st, 1));
+        snprintf(p->addr, sizeof p->addr, "%s", col_text(st, 0));
+        snprintf(p->agent, sizeof p->agent, "%s", col_text(st, 1));
         p->last_seen = sqlite3_column_int64(st, 2);
         p->last_good = sqlite3_column_int64(st, 3);
         p->dnet      = sqlite3_column_int(st, 4);

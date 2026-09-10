@@ -131,6 +131,13 @@ static void *proxypf_main(void *arg) {
 // (SNI and all) flows through untouched, so minting/DANE work as on any path.
 // Plain http:// requests are bounced to https (parity with the dead :80).
 
+// SMAppService login items are jetsam-classified as daemons with a 32-thread
+// cap. Each PAC CONNECT used to pthread_create+detach with no bound, and the
+// DANE proxy does the same per TLS conn — Discover favicons + a browser tab
+// walked the process into that cap and the app vanished with no crash report.
+#define PAC_CONN_MAX 8
+static volatile int g_pac_live;
+
 static int fd_write_all(int fd, const char *p, size_t n) {
     size_t done = 0;
     while (done < n) {
@@ -300,6 +307,7 @@ static void *pac_conn_main(void *arg) {
     int cfd = (int)(intptr_t)arg;
     pac_conn(cfd);
     close(cfd);
+    __sync_fetch_and_sub(&g_pac_live, 1);
     return NULL;
 }
 
@@ -330,13 +338,21 @@ static void *pacd_main(void *arg) {
         if (poll(&pfd, 1, 500) <= 0) continue;
         int cfd = accept(g.lfdpac, NULL, NULL);
         if (cfd < 0) continue;
+        if (__sync_add_and_fetch(&g_pac_live, 1) > PAC_CONN_MAX) {
+            __sync_fetch_and_sub(&g_pac_live, 1);
+            close(cfd);
+            continue;
+        }
         pthread_t t;
         if (pthread_create(&t, NULL, pac_conn_main, (void *)(intptr_t)cfd) != 0) {
+            __sync_fetch_and_sub(&g_pac_live, 1);
             close(cfd);
             continue;
         }
         pthread_detach(t);
     }
+    while (__sync_add_and_fetch(&g_pac_live, 0) > 0)
+        poll(NULL, 0, 50);
     g.runningpac = 0;
     return NULL;
 }

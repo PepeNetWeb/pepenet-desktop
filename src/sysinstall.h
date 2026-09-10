@@ -20,8 +20,9 @@ typedef struct {
                          // the DNS-free browser route (webproxy's PAC + CONNECT)
 } InstallState;
 
-// Cheap probes (stat + `security`/`pfctl` shellouts). Cache the result ~5 s in
-// the caller; this does real work. Safe on the UI thread.
+// Cheap probes (stat + `security`/`scutil` shellouts). The first call is
+// synchronous; later calls return a snapshot and refresh off-thread (~5 s)
+// so the UI never forks. Callers may still cache.
 void sysinstall_probe(InstallState *out);
 
 // The buttons. install: trust_install(ca_root_cert_path()) in-process, then

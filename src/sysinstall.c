@@ -6,10 +6,12 @@
 #include "trust.h"
 
 #include <dirent.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 // resolve packaging/install-helper.sh: bundled Resources first (packaged app),
@@ -30,7 +32,18 @@ static int cmd_ok(const char *cmd) {          // 1 if the command exits 0
     return pclose(p) == 0;
 }
 
-void sysinstall_probe(InstallState *out) {
+// The probes shell out (`security`, `scutil`). popen = fork, and fork from a
+// multithreaded Metal/OpenSSL process is a crash lottery — plus the UI thread
+// was blocking on fgets of those pipes every 5 s (Discover + Settings). First
+// call (init) stays synchronous so consent/repair see the truth; refreshes
+// run on a detached worker and the caller reads the last snapshot.
+static pthread_mutex_t g_probe_mu = PTHREAD_MUTEX_INITIALIZER;
+static InstallState    g_probe_snap;
+static int             g_probe_have;
+static int64_t         g_probe_at;
+static volatile int    g_probe_busy;
+
+static void probe_now(InstallState *out) {
     memset(out, 0, sizeof *out);
 
     char cmd[512];
@@ -81,6 +94,58 @@ void sysinstall_probe(InstallState *out) {
         "/127\\.0\\.0\\.1:" APP_PAC_PORT_S "\\/proxy\\.pac/{u=1} END{exit !(e&&u)}'");
 }
 
+static void *probe_worker(void *arg) {
+    (void)arg;
+    InstallState tmp;
+    probe_now(&tmp);
+    pthread_mutex_lock(&g_probe_mu);
+    g_probe_snap = tmp;
+    g_probe_have = 1;
+    g_probe_at = (int64_t)time(NULL);
+    g_probe_busy = 0;
+    pthread_mutex_unlock(&g_probe_mu);
+    return NULL;
+}
+
+void sysinstall_probe(InstallState *out) {
+    int64_t now = (int64_t)time(NULL);
+    pthread_mutex_lock(&g_probe_mu);
+    int have = g_probe_have;
+    if (have) *out = g_probe_snap;
+    int stale = !have || now - g_probe_at >= 5;
+    int kick = stale && !g_probe_busy;
+    if (kick) g_probe_busy = 1;
+    pthread_mutex_unlock(&g_probe_mu);
+
+    if (!have) {
+        // init / first caller: block so consent and repair see the real bits
+        probe_now(out);
+        pthread_mutex_lock(&g_probe_mu);
+        g_probe_snap = *out;
+        g_probe_have = 1;
+        g_probe_at = now;
+        g_probe_busy = 0;
+        pthread_mutex_unlock(&g_probe_mu);
+        return;
+    }
+    if (kick) {
+        pthread_t t;
+        if (pthread_create(&t, NULL, probe_worker, NULL) != 0) {
+            pthread_mutex_lock(&g_probe_mu);
+            g_probe_busy = 0;
+            pthread_mutex_unlock(&g_probe_mu);
+        } else {
+            pthread_detach(t);
+        }
+    }
+}
+
+static void probe_invalidate(void) {
+    pthread_mutex_lock(&g_probe_mu);
+    g_probe_at = 0;                 // next sysinstall_probe refreshes immediately
+    pthread_mutex_unlock(&g_probe_mu);
+}
+
 int sysinstall_install(void) {
     ca_set_tld(APP_TLD);
     // 1) CA trust — unprivileged login-keychain op (its own GUI auth prompt)
@@ -101,6 +166,7 @@ int sysinstall_install(void) {
     // 4) launch at login — the resolver/proxy live in-process, so "web access
     //    enabled" implies the app should come up with the machine
     sysinstall_loginitem_set(1);
+    probe_invalidate();
     return ca && sys;
 }
 
@@ -293,5 +359,7 @@ int sysinstall_uninstall(void) {
              "osascript -e 'do shell script \"/bin/sh \\\"%s\\\" uninstall " APP_TLD "\" "
              "with administrator privileges' >/dev/null 2>&1",
              helper);
-    return cmd_ok(script);
+    int rc = cmd_ok(script);
+    probe_invalidate();
+    return rc;
 }

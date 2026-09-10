@@ -196,8 +196,11 @@ void view_discover(struct nk_context *ctx, struct nk_rect area) {
         struct nk_rect cr = nk_rect(x + (shown % cols) * (cw + 12),
                                     y + (float)(shown / cols) * (CARD_H + 12),
                                     cw, CARD_H);
-        card(ctx, cr, &rows[i], web_ready);
         shown++;
+        // skip draw (not layout) when fully outside the scroll clip — 512
+        // identicon cards blew sokol-nuklear's 64k vertex buffer
+        if (cr.y + cr.h < view.y || cr.y > view.y + view.h) continue;
+        card(ctx, cr, &rows[i], web_ready);
     }
     if (shown)
         y += (float)((shown + cols - 1) / cols) * (CARD_H + 12);

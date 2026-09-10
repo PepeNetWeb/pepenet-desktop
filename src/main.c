@@ -262,6 +262,7 @@ static void init(void) {
     snk_setup(&(snk_desc_t){
         .dpi_scale = px_scale(),
         .no_default_font = true,
+        .max_vertices = 262144,     // Discover draws every card; 64k overflowed
         .logger.func = slog_func,
     });
     platform_style_window(UI_SCALE);
@@ -271,6 +272,9 @@ static void init(void) {
         fprintf(stderr, "wallet selftest: %s\n",
                 swl_selftest() == 0 ? "PASS" : "FAIL");
     if (!S.demo) {
+        // first probe before engines_boot so the one remaining synchronous
+        // fork (`security` / `scutil`) happens with fewer live threads
+        { InstallState warm; sysinstall_probe(&warm); }
         // dev wallet + chain sync + dns plane + DANE proxy + directory — all
         // of it behind the single-writer lock (engines_boot); a second desktop
         // on the same data dir gets DLG_LOCKED instead of a WAL fight
@@ -591,15 +595,13 @@ sapp_desc sokol_main(int argc, char *argv[]) {
     snprintf(S.coin, sizeof S.coin, "%s", pos[2] ? pos[2] : DEFAULT_COIN);
     if (pos[0]) snprintf(S.dbpath, sizeof S.dbpath, "%s", pos[0]);
     else default_dbpath(S.dbpath, sizeof S.dbpath);
-#ifdef _WIN32
-    // GUI subsystem: stderr goes nowhere — tee every diagnostic to a log next
-    // to the db so a user report can include it (<db>.log, append, per-line).
+    // GUI / .app: stderr is /dev/null — tee diagnostics next to the db so a
+    // vanish without a crash report still leaves a trail (<db>.log).
     { char lp[560]; snprintf(lp, sizeof lp, "%s.log", S.dbpath);
       if (freopen(lp, "a", stderr)) {
           setvbuf(stderr, NULL, _IOLBF, 4096);
           fprintf(stderr, "---- pepenet boot %lld ----\n", (long long)time(NULL));
       } }
-#endif
     snprintf(S.ip, sizeof S.ip, "%s", pos[1] ? pos[1] : DEFAULT_PEER);
     return (sapp_desc){
         .init_cb = init, .frame_cb = frame, .event_cb = input, .cleanup_cb = cleanup,

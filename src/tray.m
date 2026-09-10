@@ -161,16 +161,42 @@ static NSImage *tray_face_image(void) {
 
 // ── setup (called once, after the window exists; live mode only — demo keeps
 //    stock close-quits behavior) ────────────────────────────────────────────────
+static NSWindow *g_keep;   // never-closed; AppKit last-window-closed counts it
+
 void tray_setup(void) {
-    Method m = class_getInstanceMethod([NSApp.delegate class],
+    Class del = [NSApp.delegate class];
+    Method m = class_getInstanceMethod(del,
                   @selector(applicationShouldTerminateAfterLastWindowClosed:));
     if (m) method_setImplementation(m, (IMP)no_term_after_last_close);
-    class_addMethod([NSApp.delegate class],
+    // belt: replace even if getInstanceMethod walked a superclass
+    class_replaceMethod(del,
+                        @selector(applicationShouldTerminateAfterLastWindowClosed:),
+                        (IMP)no_term_after_last_close, "c@:@");
+    class_addMethod(del,
                     @selector(applicationShouldHandleReopen:hasVisibleWindows:),
                     (IMP)reopen_shows_window, "c@:@c");
-    class_addMethod([NSApp.delegate class],
+    class_addMethod(del,
                     @selector(applicationDockMenu:),
                     (IMP)dock_menu, "@@:@");
+
+    // AppKit's deferred last-window-closed check counts VISIBLE windows. A
+    // vetoed close / --background orderOut leaves zero, and on some OS
+    // versions the swizzle above loses the race — the app then [terminate:]s
+    // with exit 0 and no crash report. An off-screen, never-closed window
+    // keeps the count ≥ 1 for the process lifetime.
+    if (!g_keep) {
+        g_keep = [[NSWindow alloc] initWithContentRect:NSMakeRect(-10000, -10000, 1, 1)
+                                             styleMask:NSWindowStyleMaskBorderless
+                                               backing:NSBackingStoreBuffered
+                                                 defer:NO];
+        g_keep.releasedWhenClosed = NO;
+        g_keep.ignoresMouseEvents = YES;
+        g_keep.alphaValue = 0;
+        g_keep.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                    NSWindowCollectionBehaviorStationary |
+                                    NSWindowCollectionBehaviorIgnoresCycle;
+        [g_keep orderBack:nil];
+    }
 
     g_target = [[TrayTarget alloc] init];
     // MRC file (no -fobjc-arc): the item comes back autoreleased, and an
