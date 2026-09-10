@@ -39,6 +39,7 @@
 #include "wallet.h"
 #include "ops.h"
 #include "update.h"
+#include "applog.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
 
@@ -567,6 +568,7 @@ static void input(const sapp_event *ev) {
 }
 
 static void cleanup(void) {
+    fprintf(stderr, "pepenet cleanup (applicationWillTerminate)\n");
     if (getenv("PEPENET_CLOSE_TEST") || getenv("PEPENET_QUIT_TEST"))
         fprintf(stderr, "CLOSETEST cleanup called\n");
     if (!S.demo) {
@@ -584,10 +586,11 @@ static void cleanup(void) {
 
 sapp_desc sokol_main(int argc, char *argv[]) {
     const char *pos[3] = { 0, 0, 0 };
-    int npos = 0;
+    int npos = 0, log_dump = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--demo")) S.demo = 1;
         else if (!strcmp(argv[i], "--background")) S.background = 1;
+        else if (!strcmp(argv[i], "--log-dump")) log_dump = 1;
         else if (!strncmp(argv[i], "--datacarriersize=", 18))
             swl_set_datacarriersize(atoi(argv[i] + 18));
         else if (npos < 3) pos[npos++] = argv[i];
@@ -595,12 +598,23 @@ sapp_desc sokol_main(int argc, char *argv[]) {
     snprintf(S.coin, sizeof S.coin, "%s", pos[2] ? pos[2] : DEFAULT_COIN);
     if (pos[0]) snprintf(S.dbpath, sizeof S.dbpath, "%s", pos[0]);
     else default_dbpath(S.dbpath, sizeof S.dbpath);
-    // GUI / .app: stderr is /dev/null — tee diagnostics next to the db so a
-    // vanish without a crash report still leaves a trail (<db>.log).
+    // 10 MB circular file next to the db. GUI / .app stderr is /dev/null
+    // otherwise — a vanish with no crash report still leaves the last 10 MB.
     { char lp[560]; snprintf(lp, sizeof lp, "%s.log", S.dbpath);
-      if (freopen(lp, "a", stderr)) {
-          setvbuf(stderr, NULL, _IOLBF, 4096);
-          fprintf(stderr, "---- pepenet boot %lld ----\n", (long long)time(NULL));
+      if (applog_open(lp)) {
+          if (log_dump) { applog_dump(stdout); exit(0); }
+          applog_hook_stderr();
+          fprintf(stderr, "---- pepenet boot %lld pid=%d demo=%d bg=%d ver=%s ----\n",
+                  (long long)time(NULL), (int)getpid(), S.demo, S.background,
+#ifdef PEPENET_VERSION
+                  PEPENET_VERSION
+#else
+                  "?"
+#endif
+                  );
+      } else if (log_dump) {
+          fprintf(stderr, "applog: cannot open %s\n", lp);
+          exit(1);
       } }
     snprintf(S.ip, sizeof S.ip, "%s", pos[1] ? pos[1] : DEFAULT_PEER);
     return (sapp_desc){

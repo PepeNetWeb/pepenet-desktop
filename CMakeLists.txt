@@ -241,6 +241,7 @@ endif()
 # ── The app ───────────────────────────────────────────────────────────────────
 set(DESKTOP_COMMON_SRCS
     src/main.c
+    src/applog.c
     src/engine.c
     src/model.c
     src/model_demo.c
