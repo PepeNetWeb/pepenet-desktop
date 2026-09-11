@@ -54,7 +54,8 @@ const char *platform_data_dir(char *out, size_t cap) {
         if (!home || !home[0]) home = ".";
         snprintf(out, cap, "%s/.%s", home, APP_DATA_DIR);
     }
-    mkdir(out, 0755);                       // idempotent; ignore EEXIST
+    mkdir(out, 0700);                       // wallet + hot CA key live here
+    chmod(out, 0700);
     return out;
 }
 

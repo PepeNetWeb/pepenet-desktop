@@ -15,6 +15,7 @@ DNS & Web — are tabs on a persistent strip; the balance chip at its right end
 drops down the wallet verbs + Settings (Send · Receive · Settings).
 
 **Install (one-liners, Enable web access, packaging):** [`INSTALL.md`](INSTALL.md).
+**P2P + TLS threat model:** [`docs/SECURITY.md`](docs/SECURITY.md).
 Headless POSIX daemons: [pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/main/INSTALL.md).
 
 ```powershell

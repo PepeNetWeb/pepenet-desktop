@@ -122,7 +122,8 @@ const char *platform_data_dir(char *out, size_t cap) {
     } else {
         snprintf(out, cap, "%s/.%s", home_dir(), APP_DATA_DIR);
     }
-    mkdir(out, 0755);
+    mkdir(out, 0700);
+    chmod(out, 0700);
     return out;
 }
 
