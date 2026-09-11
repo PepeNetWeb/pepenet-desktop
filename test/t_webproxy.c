@@ -488,10 +488,10 @@ int main(void) {
           "  ...GET /etc/passwd serves nothing from disk",                         400 },
         { "GET /..%2f..%2fetc%2fpasswd HTTP/1.1\r\n\r\n",    "encoded traversal is refused",
           "  ...encoded traversal serves nothing from disk",                       400 },
-        { "GET /proxy.pac/../../etc/passwd HTTP/1.1\r\n\r\n","traversal under /proxy.pac answers 200",
-          "  ...and it is the PAC verbatim, never a disk file",                    200 },
-        { "GET /proxy.pac/x HTTP/1.1\r\n\r\n",               "GET /proxy.pac/x answers 200 (prefix match)",
-          "  ...and it is the PAC verbatim, never a disk file",                    200 },
+        { "GET /proxy.pac/../../etc/passwd HTTP/1.1\r\n\r\n","traversal under /proxy.pac is refused",
+          "  ...GET /proxy.pac is an exact path, not a prefix",                     400 },
+        { "GET /proxy.pac/x HTTP/1.1\r\n\r\n",               "GET /proxy.pac/x is refused (not a prefix)",
+          "  ...GET /proxy.pac is an exact path, not a prefix",                     400 },
     };
     for (size_t i = 0; i < sizeof paths / sizeof paths[0]; i++) {
         char b[8192];

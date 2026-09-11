@@ -207,7 +207,7 @@ static void pac_send(int fd) {
                       "HTTP/1.1 200 OK\r\n"
                       "Content-Type: application/x-ns-proxy-autoconfig\r\n"
                       "Content-Length: %u\r\n"
-                      "Cache-Control: no-cache\r\n"
+                      "Cache-Control: no-store, no-cache\r\n"
                       "Connection: close\r\n\r\n",
                       (unsigned)(sizeof body - 1));
     if (fd_write_all(fd, head, (size_t)hn) == 0)
@@ -244,11 +244,18 @@ static void splice_raw(int a, int b) {
      * with nfds > FD_SETSIZE fails outright with EINVAL, silently killing the
      * tunnel. Each CONNECT holds two fds, so a busy front door reaches that.
      * pacd_main already polls; this is the one place that did not. */
+    time_t last = time(NULL);
     for (;;) {
         if (g.stop) break;
         struct pollfd pf[2] = { { a, POLLIN, 0 }, { b, POLLIN, 0 } };
-        if (poll(pf, 2, 500) < 0) break;
+        int pr = poll(pf, 2, 500);
+        if (pr < 0) break;
         if (g.stop) break;
+        if (pr == 0) {
+            if (time(NULL) - last >= 120) break;
+            continue;
+        }
+        last = time(NULL);
         if ((pf[0].revents & (POLLIN | POLLHUP | POLLERR)) && !pump_raw(a, b)) break;
         if ((pf[1].revents & (POLLIN | POLLHUP | POLLERR)) && !pump_raw(b, a)) break;
     }
@@ -262,7 +269,10 @@ static void pac_conn(int cfd) {
     int n = http_head_read(cfd, head, sizeof head);
     if (n <= 0) return;
 
-    if (!strncmp(head, "GET /proxy.pac", 14)) { pac_send(cfd); return; }
+    if (!strncmp(head, "GET /proxy.pac", 14) &&
+        (head[14] == ' ' || head[14] == '?' || head[14] == '\r')) {
+        pac_send(cfd); return;
+    }
 
     if (!strncmp(head, "CONNECT ", 8)) {
         char target[300] = "";
@@ -342,6 +352,7 @@ static void *pacd_main(void *arg) {
         if (cfd < 0) continue;
         if (__sync_add_and_fetch(&g_pac_live, 1) > PAC_CONN_MAX) {
             __sync_fetch_and_sub(&g_pac_live, 1);
+            http_status(cfd, "503 Service Unavailable");
             close(cfd);
             continue;
         }

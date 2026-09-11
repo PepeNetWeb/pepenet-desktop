@@ -88,6 +88,9 @@ End-to-end (DESIGN.md §3 still holds):
 9. `trust_install` refuses a PEM that is not this process’s in-memory root,
    then plants a temp copy — a swapped unconstrained CA in `~/.pepenet` is
    not what gets `security add-trusted-cert`.
+10. Quiet PAC/DANE tunnels drop after 120s idle. `--listen` is loopback-only.
+    Linux `install-helper` refuses a `--cert` that is not `CA:TRUE` with
+    NameConstraints for this TLD.
 
 PAC / DANE connection caps: `PAC_CONN_MAX=8`, desktop `PROXY_CONN_MAX=8`
 (login-item jetsam is 32 threads). Quit: splice polls 500ms and honors stop
@@ -143,7 +146,10 @@ do not point `--cert` at an arbitrary file.
 | Mint only `*.<tld>` | done |
 | Trust-store = in-memory root | done |
 | Data dir 0700 / key 0600 | done |
-| Node identity key in version | **open** |
-| Keychain-backed CA key | **open** |
-| Privileged helper cert seal (Linux system store) | **open** |
-| Idle timeout on splice tunnels | **open** |
+| Splice idle timeout (120s) | done |
+| PAC `/proxy.pac` exact path + `no-store` | done |
+| `--listen` loopback-only | done |
+| Linux helper `--cert` must be CA:TRUE + NC for TLD | done |
+| Dup `op_id` skips ECDSA | done |
+| Node identity key in version | **open** (needs a protocol bump) |
+| Keychain-backed CA key | **open** (Secure Enclave / SecItem) |
