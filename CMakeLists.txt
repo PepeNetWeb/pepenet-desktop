@@ -229,7 +229,12 @@ target_include_directories(tls_embed PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # definition reaches only the pepenet-desktop target and proxy.c, compiled into
 # this static lib, falls back to "dev" — so a shipped build's error pages would
 # claim a version the app is not.
-target_compile_definitions(tls_embed PRIVATE PEPENET_VERSION="${PEPENET_VERSION}")
+# 8: PAC is already 8. Two DANE acceptors (:8443 + pf :8445) share g_live.
+# SMAppService login items are jetsam-capped at 32 threads; 64 detaches plus
+# PAC/UI/serve walked the process into an exit-0 vanish.
+target_compile_definitions(tls_embed PRIVATE
+    PEPENET_VERSION="${PEPENET_VERSION}"
+    PROXY_CONN_MAX=8)
 target_link_libraries(tls_embed PUBLIC
     dns_embed
     ${TLS_SSL_LIBS}

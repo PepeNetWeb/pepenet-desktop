@@ -245,8 +245,10 @@ static void splice_raw(int a, int b) {
      * tunnel. Each CONNECT holds two fds, so a busy front door reaches that.
      * pacd_main already polls; this is the one place that did not. */
     for (;;) {
+        if (g.stop) break;
         struct pollfd pf[2] = { { a, POLLIN, 0 }, { b, POLLIN, 0 } };
-        if (poll(pf, 2, -1) <= 0) break;
+        if (poll(pf, 2, 500) < 0) break;
+        if (g.stop) break;
         if ((pf[0].revents & (POLLIN | POLLHUP | POLLERR)) && !pump_raw(a, b)) break;
         if ((pf[1].revents & (POLLIN | POLLHUP | POLLERR)) && !pump_raw(b, a)) break;
     }

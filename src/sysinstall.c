@@ -234,8 +234,8 @@ int sysinstall_loginitem_set(int on) {
 
 // Launch-at-login defaults ON: the first boot plants the agent and drops a
 // marker; from then on the Settings toggle is the only writer (so a user's
-// OFF stays off). While the agent exists it is rewritten each boot, keeping
-// the executable path and arguments current across app moves and updates.
+// OFF stays off). Do not re-register an already-on SMAppService agent: that
+// can spawn a second --background that loses db_lock and exit(0).
 void sysinstall_loginitem_default(void) {
     char p[512];
     struct stat st;
@@ -244,9 +244,10 @@ void sysinstall_loginitem_default(void) {
         sysinstall_loginitem_set(1);
         FILE *f = fopen(p, "w");
         if (f) { fputs("applied\n", f); fclose(f); }
-    } else if (sysinstall_loginitem_state()) {
-        sysinstall_loginitem_set(1);
     }
+    // already-on: do not re-register. SMAppService register on a live agent
+    // can spawn a second --background that loses db_lock and exit(0), leaving
+    // launchd job=exited.
 }
 
 // ── Firefox enterprise-roots pref ────────────────────────────────────────────
