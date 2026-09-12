@@ -433,7 +433,8 @@ static void *net_main(void *arg) {
           idx_db_close(cdb);
       } }
 
-    IdxMeshHooks mesh = { mesh_up, mesh_msg, mesh_down, mesh_tick, NULL };
+    IdxMeshHooks mesh = { mesh_up, mesh_msg, mesh_down, mesh_tick, NULL, serve_conn_misbehave };
+    dnsnet_set_misbehave(serve_conn_misbehave);
     if (g.listen)
         fprintf(stderr, "dnsnet: listening on chain port %u (inbound + crawl-discoverable)\n", g.listen);
     idx_serve(g.coin, g.chain_db, g.listen /* 0 = dial-only */, dial, &g.stop, &mesh);

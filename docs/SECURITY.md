@@ -40,8 +40,9 @@ One name per `dnzdat`. No-change dumps are silent (anti-entropy every 60s).
 Hold queue stores ahead-of-tip ops, **one slot per blob**.
 
 **Still unauthenticated:** who may *relay* a valid op. That is intended —
-flood of *valid* owner ops still costs ECDSA (dup is after crypto). Cap
-inbound `dnzget` (2s/peer) limits the cheap dump amp.
+flood of *fresh valid* owner ops still costs ECDSA. Dup `op_id` skips verify
+(lookup is before secp). Cap inbound `dnzget` (2s/peer) plus the ECDSA token
+bucket in [`DOS.md`](DOS.md) bound the rest.
 
 ---
 
@@ -62,9 +63,10 @@ it. Controls that bound the blast radius:
 | P2P payload checksum (sha256d) | Magic was checked; checksum is now checked on recv and the serve parse. |
 | `self` only from **outbound** `addr_recv`, globally-routable IPv4 | First inbound peer used to make us advertise their IP. |
 
-**Not done (needs a protocol bump):** a node identity key in version, or
-“only mesh-dial addresses whose mark *we* observed.” Until then, treat the
-mark as a hint plus the caps above — not as authentication.
+**Not done (needs a protocol bump):** a node identity key in version. Until
+then, treat the mark as a hint plus the caps above — not as authentication.
+Feelers ([`DOS.md`](DOS.md)) make the hint non-self-propagating: `dnaddr`
+only re-gossips marks **we** observed; gossiped `dnet=1` is the new table.
 
 ---
 
@@ -151,5 +153,10 @@ do not point `--cert` at an arbitrary file.
 | `--listen` loopback-only | done |
 | Linux helper `--cert` must be CA:TRUE + NC for TLD | done |
 | Dup `op_id` skips ECDSA | done |
+| Handshake `net_recv` 2 MiB + wallet checksum | done ([`DOS.md`](DOS.md)) |
+| Score 100 / 24 h IPv4 ban + inv/addr caps | done |
+| getdata 16 blocks / 16 MiB / 10 s + 128 lookups | done |
+| ECDSA 64/s/peer + `ZDAT_OPS_MAX` 64 | done |
+| Feelers (`dnet=1` new table, `dnaddr` = observed mark) | done |
 | Node identity key in version | **open** (needs a protocol bump) |
 | Keychain-backed CA key | **open** (Secure Enclave / SecItem) |

@@ -16,6 +16,7 @@ drops down the wallet verbs + Settings (Send · Receive · Settings).
 
 **Install (one-liners, Enable web access, packaging):** [`INSTALL.md`](INSTALL.md).
 **P2P + TLS threat model:** [`docs/SECURITY.md`](docs/SECURITY.md).
+**P2P DoS roadmap (Bitcoin-style, C, no Rust):** [`docs/DOS.md`](docs/DOS.md).
 Headless POSIX daemons: [pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/main/INSTALL.md).
 
 ```powershell

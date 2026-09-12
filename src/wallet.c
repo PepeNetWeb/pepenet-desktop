@@ -504,9 +504,11 @@ static int net_recv(int fd, const uint8_t magic[4], char cmd_out[13], uint8_t **
     if (memcmp(hdr, magic, 4) != 0) return -1;
     memcpy(cmd_out, hdr + 4, 12); cmd_out[12] = 0;
     uint32_t l = (uint32_t)hdr[16] | (uint32_t)hdr[17] << 8 | (uint32_t)hdr[18] << 16 | (uint32_t)hdr[19] << 24;
-    if (l > 32 * 1024 * 1024) return -1;
+    if (l > 2u * 1024 * 1024) return -1;
     uint8_t *buf = malloc(l ? l : 1);
     if (l && !read_n(fd, buf, l, timeout_ms)) { free(buf); return 0; }
+    uint8_t ck[32]; idx_sha256d(l ? buf : (const uint8_t *)"", l, ck);
+    if (memcmp(hdr + 20, ck, 4) != 0) { free(buf); return -1; }
     *payload = buf; *len = l; return 1;
 }
 static int p2p_handshake(int fd, const uint8_t magic[4]) {

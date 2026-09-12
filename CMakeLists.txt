@@ -144,7 +144,7 @@ set(DESKTOP_IDX_SRCS
     ${IDX_DIR}/attrib.c ${IDX_DIR}/adapter.c ${IDX_DIR}/oracle_feed.c
     ${IDX_DIR}/db.c ${IDX_DIR}/chain.c ${IDX_DIR}/base58.c
     ${IDX_DIR}/sync.c ${IDX_DIR}/pow.c ${IDX_DIR}/serve_store.c
-    ${IDX_DIR}/txcheck.c ${IDX_DIR}/mempool.c ${SHIM_SRC}
+    ${IDX_DIR}/txcheck.c ${IDX_DIR}/mempool.c ${IDX_DIR}/net_policy.c ${SHIM_SRC}
 )
 
 # ── The pepenet-mesh facade (sp_*) ────────────────────────────────────────────
