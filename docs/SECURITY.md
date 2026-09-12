@@ -46,10 +46,14 @@ bucket in [`DOS.md`](DOS.md) bound the rest.
 
 ---
 
-## 3. Overlay membership (the remaining structural gap)
+## 3. Overlay membership
 
 `/pepenet-` in `version.user_agent` is **not a credential**. Anyone can send
-it. Controls that bound the blast radius:
+it — the same way `/Satoshi/` is cosmetics on Bitcoin. We do **not** put a
+node identity key in `version`. Eclipse is bounded the Bitcoin way (new/tried
+feelers, one mesh dial per `/16`, inbound caps), not with peer PKI.
+
+Controls that bound the blast radius:
 
 | Control | Why |
 |---------|-----|
@@ -63,8 +67,7 @@ it. Controls that bound the blast radius:
 | P2P payload checksum (sha256d) | Magic was checked; checksum is now checked on recv and the serve parse. |
 | `self` only from **outbound** `addr_recv`, globally-routable IPv4 | First inbound peer used to make us advertise their IP. |
 
-**Not done (needs a protocol bump):** a node identity key in version. Until
-then, treat the mark as a hint plus the caps above — not as authentication.
+Treat the mark as a hint plus the caps above — not as authentication.
 Feelers ([`DOS.md`](DOS.md)) make the hint non-self-propagating: `dnaddr`
 only re-gossips marks **we** observed; gossiped `dnet=1` is the new table.
 
@@ -124,7 +127,8 @@ do not point `--cert` at an arbitrary file.
 - Open the proxy on `0.0.0.0` in the desktop build.
 - Splice origin bytes without a DANE-EE match.
 - Admit zone ops for an unowned or foreign-signed name.
-- Treat `/pepenet-` as a cryptographic identity (until a version-key exists).
+- Treat `/pepenet-` as a cryptographic identity.
+- Put a node identity key in `version`.
 
 ---
 
@@ -158,5 +162,5 @@ do not point `--cert` at an arbitrary file.
 | getdata 16 blocks / 16 MiB / 10 s + 128 lookups | done |
 | ECDSA 64/s/peer + `ZDAT_OPS_MAX` 64 | done |
 | Feelers (`dnet=1` new table, `dnaddr` = observed mark) | done |
-| Node identity key in version | **open** (needs a protocol bump) |
+| Node identity key in version | **won't** (Bitcoin doesn't either; mark stays cosmetics) |
 | Keychain-backed CA key | **open** (Secure Enclave / SecItem) |

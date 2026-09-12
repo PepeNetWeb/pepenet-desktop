@@ -14,7 +14,7 @@ Roadmap for Bitcoin-style local-policy DoS hardening in C. Implementation follow
 
 ## How this relates to SECURITY.md
 
-[`pepenet-desktop/docs/SECURITY.md`](https://github.com/PepeNetWeb/pepenet-desktop/blob/0.2.3/docs/SECURITY.md) is the **threat model + 0.2.3 checklist**. It states what is already true on the wire, what the two planes trust, and the two leftover items that need a protocol bump or OS keychain work.
+[`pepenet-desktop/docs/SECURITY.md`](https://github.com/PepeNetWeb/pepenet-desktop/blob/0.2.3/docs/SECURITY.md) is the **threat model + 0.2.3 checklist**. It states what is already true on the wire, what the two planes trust, and the leftover that still needs OS keychain work.
 
 **This document is the DoS roadmap that follows that checklist.** It does not re-argue zone authenticity, DANE, or the local CA. It does not re-propose any 0.2.3 control as new work. When a constant or function is named here, it is the 0.2.3-pinned source, not a restatement of the threat model.
 
@@ -25,8 +25,9 @@ Roadmap for Bitcoin-style local-policy DoS hardening in C. Implementation follow
 
 SECURITY.md leftovers that stay **out of this work**:
 
-- Node identity key in `version` (protocol bump).
 - CA key in login keychain / Secure Enclave.
+
+A node identity key in `version` is **not** leftover work. Product decision: we will not add one. Bitcoin never authenticated peers that way (`subver` is cosmetics); eclipse is bounded with AddrMan new/tried, `/16`, feelers, and inbound caps — which this roadmap already copies.
 
 tls / DANE / PAC stay a separate plane. Do not mix proxy connection caps (`PAC_CONN_MAX`, `PROXY_CONN_MAX`) into P2P score/ban.
 
@@ -119,7 +120,7 @@ Approximate surface (0.2.3 pin): `sync.c` 2800, `dns_net.c` 305, `state.c` 614, 
 
 ## Key Decisions
 
-1. **Stay in C, local policy only.** Bitcoin Core's DoS model (caps, score, ban, feelers) maps onto `SConn` / `Peer` / `peers` without a wire change. A version-key would authenticate overlay membership; that is a separate SECURITY.md open and is not a prerequisite for bounding blast radius.
+1. **Stay in C, local policy only.** Bitcoin Core's DoS model (caps, score, ban, feelers) maps onto `SConn` / `Peer` / `peers` without a wire change. A version-key would authenticate overlay membership; **we will not add one** (same as Bitcoin: `subver` stays cosmetics). Feelers + `/16` + inbound caps bound eclipse.
 
 2. **One message-size constant: 2 MiB.** Serve already uses `SERVE_MSG_MAX` (`2 * 1024 * 1024`). Handshake `net_recv` drops from 32 MiB to the same cap. Pepecoin/Dogecoin-1.14 blocks are 1 MiB-class; 2 MiB leaves margin. Bitcoin Core’s `MAX_PROTOCOL_MESSAGE_LENGTH` is `4 * 1000 * 1000` (4 000 000, witness); we do not need that.
 
@@ -421,7 +422,7 @@ flowchart LR
 
 **Inbound marked.** `idx_db_peer_touch_agent` is UPDATE-only (`db.c` ~283–292): a first inbound from an IP with no listen-port row stamps nothing, so “inbound observation may enter `dnaddr`” is false today. v1: grow it to **INSERT** `host:<coin_port>` if missing (`agent` set, `last_good = 0`, `last_seen = now`). Ephemeral inbound port is not the row; the listen port is. That is “we observed the mark” and it may enter `dnaddr`.
 
-**What we will not do here:** a version-key, or "only dial addresses whose mark we observed" as a hard rule that deletes the new table. Feelers *are* how we observe. SECURITY.md's "until a version-key exists, treat the mark as a hint plus caps" remains true; this makes the hint non-self-propagating.
+**What we will not do here:** a version-key (product: never, not deferred), or "only dial addresses whose mark we observed" as a hard rule that deletes the new table. Feelers *are* how we observe. The mark stays a hint plus caps; this makes the hint non-self-propagating.
 
 ### 6. Fuzz
 
@@ -548,7 +549,7 @@ Memory safety in the frame codecs. We already audited those codecs: no RCE-class
 
 ### B. Protocol bump: node identity key in `version`
 
-Would make `/pepenet-` a credential and make feelers less necessary. Already an open in SECURITY.md. Needs a version bump, key distribution, and replay rules. **Out of scope.** Feelers + caps are the local-policy substitute.
+Would make `/pepenet-` a credential. Needs a version bump, key distribution, and replay rules. Bitcoin never did this: eclipse papers led to AddrMan / `/16` / feelers, not peer PKI. **Rejected — product decision.** Feelers + caps are the substitute, not a stopgap until a key exists.
 
 ### C. BIP324 transport AEAD
 
