@@ -138,10 +138,21 @@ static void *proxypf_main(void *arg) {
 #define PAC_CONN_MAX 8
 static volatile int g_pac_live;
 
+static void nosigpipe(int fd) {
+#ifdef SO_NOSIGPIPE
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
+}
+
 static int fd_write_all(int fd, const char *p, size_t n) {
     size_t done = 0;
     while (done < n) {
+#ifdef MSG_NOSIGNAL
+        ssize_t w = send(fd, p + done, n - done, MSG_NOSIGNAL);
+#else
         ssize_t w = send(fd, p + done, n - done, 0);
+#endif
         if (w <= 0) return -1;
         done += (size_t)w;
     }
@@ -217,6 +228,7 @@ static void pac_send(int fd) {
 static int dial_loopback(int port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
+    nosigpipe(fd);
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof sa);
     sa.sin_family = AF_INET;
@@ -231,7 +243,11 @@ static int pump_raw(int from, int to) {
     ssize_t n = recv(from, buf, sizeof buf, 0);
     if (n <= 0) return 0;
     for (ssize_t off = 0; off < n; ) {
+#ifdef MSG_NOSIGNAL
+        ssize_t w = send(to, buf + off, (size_t)(n - off), MSG_NOSIGNAL);
+#else
         ssize_t w = send(to, buf + off, (size_t)(n - off), 0);
+#endif
         if (w <= 0) return 0;
         off += w;
     }
@@ -263,6 +279,7 @@ static void splice_raw(int a, int b) {
 
 // one front-door connection: a PAC fetch, a plain-http bounce, or a CONNECT
 static void pac_conn(int cfd) {
+    nosigpipe(cfd);
     struct timeval tv = { 5, 0 };               // a stalled head, not a tunnel
     setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     char head[8192];

@@ -486,8 +486,13 @@ static int net_send(int fd, const uint8_t magic[4], const char *cmd, const uint8
     strncpy((char *)hdr + 4, cmd, 12);
     hdr[16] = (uint8_t)len; hdr[17] = (uint8_t)(len >> 8); hdr[18] = (uint8_t)(len >> 16); hdr[19] = (uint8_t)(len >> 24);
     uint8_t ck[32]; idx_sha256d(payload ? payload : (const uint8_t *)"", len, ck); memcpy(hdr + 20, ck, 4);
+#ifdef MSG_NOSIGNAL
+    if (send(fd, hdr, 24, MSG_NOSIGNAL) != 24) return 0;
+    if (len && send(fd, payload, len, MSG_NOSIGNAL) != (ssize_t)len) return 0;
+#else
     if (write(fd, hdr, 24) != 24) return 0;
     if (len && write(fd, payload, len) != (ssize_t)len) return 0;
+#endif
     return 1;
 }
 static int read_n(int fd, uint8_t *buf, size_t n, int timeout_ms) {
@@ -561,6 +566,9 @@ static int resolve_connect(const char *hostport, uint16_t dflt_port) {
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (fd < 0) continue;
+#ifdef SO_NOSIGPIPE
+        { int one = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one); }
+#endif
         int fl = fcntl(fd, F_GETFL, 0);
         fcntl(fd, F_SETFL, fl | O_NONBLOCK);
         int r = connect(fd, ai->ai_addr, ai->ai_addrlen);

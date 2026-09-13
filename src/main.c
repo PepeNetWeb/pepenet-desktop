@@ -51,6 +51,9 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <time.h>
+#ifndef _WIN32
+#include <signal.h>
+#endif
 
 void tray_setup(void);
 void tray_update(void);
@@ -585,6 +588,12 @@ static void cleanup(void) {
 }
 
 sapp_desc sokol_main(int argc, char *argv[]) {
+#ifndef _WIN32
+    // idx_serve write()s the chain/mesh wire. A peer that RSTs without FIN
+    // turns that write into SIGPIPE and the whole process dies — launchd
+    // last recorded "Broken pipe: 13" with no cleanup line in pep.db.log.
+    signal(SIGPIPE, SIG_IGN);
+#endif
     const char *pos[3] = { 0, 0, 0 };
     int npos = 0, log_dump = 0;
     for (int i = 1; i < argc; i++) {

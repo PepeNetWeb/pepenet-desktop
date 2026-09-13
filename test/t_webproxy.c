@@ -64,6 +64,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -222,16 +223,61 @@ static void on_alarm(int s) {
     _exit(1);
 }
 
+#ifndef _WIN32
+/* A reset TCP peer + write() is SIGPIPE. That is the 0.2.3 desktop vanish:
+ * launchd last terminating signal = Broken pipe: 13, no cleanup line in the
+ * circular log. The child sets SIG_DFL so the parent ignore cannot hide it. */
+static int child_write_closed(int protect) {
+    int sp[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sp) != 0) return 2;
+    if (protect) {
+#ifdef SO_NOSIGPIPE
+        int one = 1;
+        setsockopt(sp[0], SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
+    }
+    signal(SIGPIPE, SIG_DFL);
+    close(sp[1]);
+    char b = 'x';
+#ifdef MSG_NOSIGNAL
+    ssize_t w = protect ? send(sp[0], &b, 1, MSG_NOSIGNAL) : write(sp[0], &b, 1);
+#else
+    ssize_t w = write(sp[0], &b, 1);
+#endif
+    int e = errno;
+    close(sp[0]);
+    return (w < 0 && e == EPIPE) ? 0 : 3;
+}
+static int fork_write_closed(int protect) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) _exit(child_write_closed(protect));
+    int st = 0;
+    if (waitpid(pid, &st, 0) != pid) return -1;
+    if (WIFSIGNALED(st)) return 1000 + WTERMSIG(st);
+    if (WIFEXITED(st)) return WEXITSTATUS(st);
+    return -2;
+}
+#endif
+
 int main(void) {
     signal(SIGPIPE, SIG_IGN);
     signal(SIGALRM, on_alarm);
     alarm(180);                     /* CI watchdog: a hang must fail, not wedge */
     setvbuf(stdout, NULL, _IONBF, 0);
 
+#ifndef _WIN32
+    SECTION("sigpipe");
+    CHECK(fork_write_closed(0) == 1000 + SIGPIPE,
+          "write to a reset peer is SIGPIPE (the desktop vanish)");
+    CHECK(fork_write_closed(1) == 0,
+          "SO_NOSIGPIPE/MSG_NOSIGNAL turns that write into EPIPE");
+#endif
+
     if (!port_is_free(APP_PAC_PORT)) {
         printf("t_webproxy: SKIP — the PAC front door's fixed port 127.0.0.1:%d "
                "is already in use (is the app running?)\n", APP_PAC_PORT);
-        return 0;
+        return g_fail;
     }
     if (!port_is_free(APP_PROXY_PORT)) {
         /* Somebody else (a running PepeNet) owns the DANE port. The front door
