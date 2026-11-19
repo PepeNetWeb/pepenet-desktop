@@ -9,6 +9,7 @@
 // The only shared mutable state is the tiny status block under g_mu.
 #include "engine.h"
 #include "appconf.h"
+#include "appinst.h"
 #include "indexer.h"
 #include "db.h"
 #include "chain.h"
@@ -25,8 +26,9 @@
 
 #define PASS_PAUSE_S 20          // pep blocks ~1/min; a pass ends when caught up
 
-static struct {
+struct Engine {
     char coin[16], dbpath[512], ip[64];
+    char chain_agent[128];
     pthread_t th;
     pthread_mutex_t mu;
     volatile int stop, running, pass_active;
@@ -34,7 +36,9 @@ static struct {
     int last_rc;
     int dn_known;       // discovery-marked peers known per the last crawl (0 = dark)
     int64_t passes;
-} g;
+};
+static struct Engine g_store;
+static struct Engine *g = &g_store;
 
 static sqlite3 *g_read;          // UI-thread read connection (lazy)
 static int64_t g_rate_h = -1;    // height the cached rate + fee were computed at
@@ -71,7 +75,7 @@ static int64_t fee_quote_at(sqlite3 *db, int64_t tip) {
 // live mesh links: serve-plane conns, either direction, whose peer carries the
 // IDX_DNET_MARK agent (or is already seated on the mesh carrier). The crawl's
 // job is finding mesh peers — while ≥1 link is up there is nothing to hunt.
-// This is deliberately NOT g.dn_known: that counts crawl-discovered addrs in
+// This is deliberately NOT g->dn_known: that counts crawl-discovered addrs in
 // the db, and a node embedded through its CONFIGURED seed (the normal client)
 // has a lit mesh with dn_known still 0.
 static int mesh_links_live(void) {
@@ -91,14 +95,14 @@ static void *sync_thread(void *arg) {
     // connection snapshot before the first pass — the ladder's one-connection
     // rule reads that snapshot, and without the pause both planes would race
     // to dial the seed at boot (the exact double-connection this app forbids)
-    for (int i = 0; i < 3 && !g.stop; i++) sleep(1);
-    while (!g.stop) {
-        char *argv[5] = { "pepenet-desktop", "sync", g.coin, g.dbpath, g.ip };
-        pthread_mutex_lock(&g.mu); g.pass_active = 1; pthread_mutex_unlock(&g.mu);
+    for (int i = 0; i < 3 && !g->stop; i++) sleep(1);
+    while (!g->stop) {
+        char *argv[5] = { "pepenet-desktop", "sync", g->coin, g->dbpath, g->ip };
+        pthread_mutex_lock(&g->mu); g->pass_active = 1; pthread_mutex_unlock(&g->mu);
         int rc = indexer_main(5, argv);
-        pthread_mutex_lock(&g.mu);
-        g.pass_active = 0; g.last_rc = rc; g.passes++;
-        pthread_mutex_unlock(&g.mu);
+        pthread_mutex_lock(&g->mu);
+        g->pass_active = 0; g->last_rc = rc; g->passes++;
+        pthread_mutex_unlock(&g->mu);
         // chain walk (peer-discovery slice 2): OPERATOR-DRIVEN only — the
         // Peers screen's Start queues it, Stop winds it down. It runs here,
         // between passes, on purpose: one db writer cadence, never concurrent
@@ -107,69 +111,92 @@ static void *sync_thread(void *arg) {
         // live mesh makes it pure transient-connection noise at every probed
         // peer), and never on the seed itself (clients dial us; marked peers
         // arrive via inbound + dnaddr).
-        if (!g.stop && g.crawl_req) {
-            g.crawl_req = 0;
+        if (!g->stop && g->crawl_req) {
+            g->crawl_req = 0;
             if (!idx_self_seed && !mesh_links_live()) {
-                g.crawl_stop = 0;
-                g.crawl_active = 1;
-                g.dn_known = idx_crawl(g.coin, g.dbpath, NULL, 64, &g.crawl_stop);
-                g.crawl_active = 0;
+                g->crawl_stop = 0;
+                g->crawl_active = 1;
+                g->dn_known = idx_crawl(g->coin, g->dbpath, NULL, 64, &g->crawl_stop);
+                g->crawl_active = 0;
             }
         }
         // a block landing in the serve plane's stage — or a walk request —
         // ends the pause early: blocks fold within ~a second of the mesh inv,
         // and Start acts promptly instead of at the timer
         int64_t sseq = idx_serve_stage_seq;
-        for (int i = 0; i < PASS_PAUSE_S && !g.stop && !g.crawl_req &&
-                        idx_serve_stage_seq == sseq; i++) sleep(1);
+        for (int i = 0; i < PASS_PAUSE_S && !g->stop && !g->crawl_req &&
+                        idx_serve_stage_seq == sseq; i++)
+            for (int t = 0; t < 10 && !g->stop; t++) usleep(100 * 1000);   /* stop within 0.1 s */
     }
-    pthread_mutex_lock(&g.mu); g.running = 0; pthread_mutex_unlock(&g.mu);
+    pthread_mutex_lock(&g->mu); g->running = 0; pthread_mutex_unlock(&g->mu);
     return NULL;
 }
 
 
-int engine_start(const char *coin, const char *dbpath, const char *ip) {
-    if (g.running) return 1;
-    idx_sync_agent = APP_CHAIN_AGENT;   // our P2P subver, before the first pass
-    snprintf(g.coin, sizeof g.coin, "%s", coin);
-    snprintf(g.dbpath, sizeof g.dbpath, "%s", dbpath);
-    snprintf(g.ip, sizeof g.ip, "%s", ip);
-    pthread_mutex_init(&g.mu, NULL);
-    g.stop = 0; g.running = 1; g.last_rc = -1; g.passes = 0;
+static int engine_spawn(const char *coin, const char *dbpath, const char *ip,
+                        const char *agent) {
+    snprintf(g->chain_agent, sizeof g->chain_agent, "%s",
+             agent && agent[0] ? agent : APP_CHAIN_AGENT);
+    idx_sync_agent = g->chain_agent;   // stable copy; the macro string stays live too
+    snprintf(g->coin, sizeof g->coin, "%s", coin ? coin : "");
+    snprintf(g->dbpath, sizeof g->dbpath, "%s", dbpath ? dbpath : "");
+    snprintf(g->ip, sizeof g->ip, "%s", ip ? ip : "");
+    pthread_mutex_init(&g->mu, NULL);
+    g->stop = 0; g->running = 1; g->last_rc = -1; g->passes = 0;
     idx_sync_stop = 0;
-    if (pthread_create(&g.th, NULL, sync_thread, NULL) != 0) { g.running = 0; return 0; }
+    if (pthread_create(&g->th, NULL, sync_thread, NULL) != 0) { g->running = 0; return 0; }
     return 1;
+}
+
+int engine_start(const char *coin, const char *dbpath, const char *ip) {
+    if (g->running) return 1;
+    /* Default build: the subver stays the compile-time mark. A non-default
+     * coin id (the desktop settings coin) takes that row's agent. */
+    const char *agent = APP_CHAIN_AGENT;
+    if (coin && strcmp(coin, APP_COIN) != 0) {
+        const AppInstance *inst = app_instance_by_coin(coin);
+        if (inst && inst->chain_agent) agent = inst->chain_agent;
+    }
+    return engine_spawn(coin, dbpath, ip, agent);
+}
+
+Engine *engine_start_inst(const struct AppInstance *inst, const char *db,
+                          const char *seeds) {
+    if (!inst || !db || g->running) return NULL;
+    if (!engine_spawn(inst->coin, db, seeds ? seeds : inst->seeds, inst->chain_agent))
+        return NULL;
+    return g;
 }
 
 // Manual chain walk (the Peers screen's Start/Stop). Start is refused under
 // the same interlocks the UI greys the button for; it takes effect within a
 // second (the pause loop watches the flag) at the next pass boundary.
 void engine_crawl_start(void) {
-    if (!g.running || idx_self_seed || mesh_links_live()) return;
-    g.crawl_req = 1;
+    if (!g->running || idx_self_seed || mesh_links_live()) return;
+    g->crawl_req = 1;
 }
 void engine_crawl_stop(void) {
-    g.crawl_req = 0;
-    g.crawl_stop = 1;
+    g->crawl_req = 0;
+    g->crawl_stop = 1;
 }
 int engine_crawl_busy(void) {
-    return g.crawl_req || g.crawl_active;
+    return g->crawl_req || g->crawl_active;
 }
 
 void engine_stop(void) {
-    if (!g.running && !g.th) return;
-    g.stop = 1;
-    g.crawl_stop = 1;            // wind down a walk that's mid-flight
+    if (!g->running && !g->th) return;
+    g->stop = 1;
+    g->crawl_stop = 1;            // wind down a walk that's mid-flight
     idx_sync_stop = 1;           // wind down a pass that's mid-flight
-    pthread_join(g.th, NULL);
-    memset(&g.th, 0, sizeof g.th);
-    g.running = 0;
+    pthread_join(g->th, NULL);
+    memset(&g->th, 0, sizeof g->th);
+    g->running = 0;
     idx_sync_stop = 0;
     if (g_read) { idx_db_close(g_read); g_read = NULL; }
 }
 
 static sqlite3 *read_db(void) {
-    if (!g_read) g_read = idx_db_open(g.dbpath);
+    if (!g_read) g_read = idx_db_open(g->dbpath);
     return g_read;
 }
 
@@ -423,10 +450,10 @@ int engine_utxos(const uint8_t h160[20], EngineUtxoCb cb, void *ud) {
 
 void engine_status(EngineStatus *out) {
     memset(out, 0, sizeof *out);
-    pthread_mutex_lock(&g.mu);
-    out->running = g.running; out->pass_active = g.pass_active;
-    out->last_rc = g.last_rc;  out->passes = g.passes;
-    pthread_mutex_unlock(&g.mu);
+    pthread_mutex_lock(&g->mu);
+    out->running = g->running; out->pass_active = g->pass_active;
+    out->last_rc = g->last_rc;  out->passes = g->passes;
+    pthread_mutex_unlock(&g->mu);
     out->peer_height = idx_sync_peer_height;   // indexer.h seam (volatile, sync thread writes)
     sqlite3 *db = read_db(); if (!db) return;
     static int64_t g_act;             // immutable per-db — read once, then cached

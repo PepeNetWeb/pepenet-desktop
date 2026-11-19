@@ -40,7 +40,36 @@ CC      ?= cc
 # -D_DEFAULT_SOURCE: glibc + -std=c11 hides mkdtemp (t_dirscan). Harmless on Darwin.
 CFLAGS  ?= -std=c11 -D_DEFAULT_SOURCE -O1 -g -Wall -Wextra -Wno-unused-parameter
 INC     := -I$(SRC) -I$(IDX) -I$(SECPDIR)/include -I$(SM) -I$(DNSSRC) -I$(MESHINC)
-LDLIBS  := $(SECPLIB) -lsqlite3
+# idx-08/09: SQLITE_AMALGAMATION=<dir> (+ SQLITE_PIN_VERSION/SQLITE_PIN_SHA256)
+# links the indexer's pinned build/sqlite/sqlite3.o (built and checked by the
+# indexer Makefile) instead of the platform -lsqlite3. Unset = unchanged.
+# idx-10: MinGW/MSYS has no libdl (and OMIT_LOAD_EXTENSION means sqlite needs none)
+ifeq ($(OS),Windows_NT)
+SQLITE_DL :=
+else ifneq ($(filter MINGW% MSYS% CYGWIN%,$(shell uname -s 2>/dev/null)),)
+SQLITE_DL :=
+else
+SQLITE_DL := -ldl
+endif
+SQLITE_AMALGAMATION ?=
+SQLITE_PIN_VERSION  ?=
+SQLITE_PIN_SHA256   ?=
+ifeq ($(strip $(SQLITE_AMALGAMATION)),)
+SQLITE_OBJ  :=
+SQLITE_LIBS := -lsqlite3
+else
+SQLITE_OBJ  := $(ROOT)/indexer/build/sqlite/sqlite3.o
+SQLITE_LIBS := $(SQLITE_OBJ) -lm $(SQLITE_DL) -lpthread
+INC         := -I$(SQLITE_AMALGAMATION) $(INC)
+endif
+LDLIBS  := $(SECPLIB) $(SQLITE_LIBS)
+# idx-11: link hooks. Add flags/libraries here instead of overriding LIBS/LDLIBS
+# on the command line (that replaces the list and drops libsecp256k1/sqlite):
+#   make EXTRA_LDFLAGS=-static EXTRA_LIBS='-lpthread -lm'
+# EXTRA_LDFLAGS joins LDFLAGS; EXTRA_LIBS goes last on every link line.
+EXTRA_LDFLAGS ?=
+EXTRA_LIBS    ?=
+LDFLAGS += $(EXTRA_LDFLAGS)
 
 # Sanitizer build: `make SAN=1 check` rebuilds everything with ASan+UBSan.
 ifdef SAN
@@ -82,6 +111,13 @@ check-jitter: $(JITTER)
 	if [ $$fail -ne 0 ]; then echo "JITTER SUITE FAILED"; exit 1; fi; \
 	echo "all jitter suites passed"
 
+ifneq ($(SQLITE_OBJ),)
+$(SQLITE_OBJ):
+	$(MAKE) -C $(ROOT)/indexer build/sqlite/sqlite3.o SQLITE_AMALGAMATION=$(SQLITE_AMALGAMATION) \
+	  SQLITE_PIN_VERSION=$(SQLITE_PIN_VERSION) SQLITE_PIN_SHA256=$(SQLITE_PIN_SHA256)
+$(TESTS) $(JITTER): | $(SQLITE_OBJ)
+endif
+
 $(SECPLIB):
 	$(MAKE) -C $(ROOT)/indexer $(SECPLIB)
 
@@ -90,3 +126,8 @@ clean:
 	rm -rf *.dSYM
 
 .PHONY: all check check-jitter clean
+
+# Black-box greatdane-node checks (dane-01..03). Needs the cmake binary and a
+# private netns:  unshare -rn sh -c 'ip link set lo up && make check-node'
+check-node:
+	./gd_node_test.sh ../build/greatdane-node

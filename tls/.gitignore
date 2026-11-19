@@ -1,0 +1,15 @@
+pepenet-tls
+ca_test
+dane_test
+origin_test
+proxy_test
+*.o
+sscert_test
+dane_deep_test
+fetch_test
+resolve_test
+proxy_jitter_test
+proxy_jitter_tsan
+*.dSYM/
+ca_deep_test
+.DS_Store

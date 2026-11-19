@@ -52,7 +52,17 @@ typedef struct {
 
 // Start the sync thread: repeated indexer_main("sync", coin, db, ip) passes
 // with a poll pause between them. Strings are copied. Returns 1, 0 on error.
+// Idempotent: a second call while the thread is up returns 1.
 int  engine_start(const char *coin, const char *dbpath, const char *ip);
+
+// Same thread, bound to an instance row (coin, subver, seeds come from inst;
+// db and seeds arguments still win for the path and the dial list). Returns
+// the one process context, or NULL if an engine is already running — indexer
+// globals cannot host two sync loops. The desktop keeps engine_start.
+typedef struct Engine Engine;
+struct AppInstance;
+Engine *engine_start_inst(const struct AppInstance *inst, const char *db,
+                          const char *seeds);
 
 // Signal the running pass to wind down (idx_sync_stop) and join the thread.
 void engine_stop(void);

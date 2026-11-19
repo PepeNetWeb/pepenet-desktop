@@ -50,8 +50,20 @@ if [ -z "$CERT" ]; then
     fi
 fi
 
+ca_cert_ok() {
+    [ -n "$CERT" ] && [ -f "$CERT" ] && [ ! -L "$CERT" ] || return 1
+    command -v openssl >/dev/null 2>&1 || return 0
+    openssl x509 -in "$CERT" -noout -ext basicConstraints 2>/dev/null | grep -q 'CA:TRUE' || {
+        echo "refusing --cert: not CA:TRUE" >&2; return 1
+    }
+    openssl x509 -in "$CERT" -noout -ext nameConstraints 2>/dev/null | grep -qi "$TLD" || {
+        echo "refusing --cert: NameConstraints do not permit .$TLD" >&2; return 1
+    }
+    return 0
+}
+
 ca_install() {
-    [ -n "$CERT" ] && [ -f "$CERT" ] || { echo "no root cert (--cert)" >&2; return 1; }
+    ca_cert_ok || { echo "no usable root cert (--cert)" >&2; return 1; }
     if [ -d /usr/local/share/ca-certificates ] && command -v update-ca-certificates >/dev/null 2>&1; then
         cp "$CERT" "$CA_DEB"
         chmod 644 "$CA_DEB"

@@ -79,6 +79,8 @@ static void show_app(void) {
     [win makeKeyAndOrderFront:nil];
 }
 
+static int g_really_quit;   // 1 only from the tray Quit item
+
 @interface TrayTarget : NSObject
 - (void)openApp:(id)sender;
 - (void)quitApp:(id)sender;
@@ -91,9 +93,9 @@ static void show_app(void) {
 }
 - (void)quitApp:(id)sender {
     (void)sender;
-    // straight through AppKit: applicationWillTerminate → sokol cleanup_cb →
-    // engines stop. (The old sapp_request_quit → performClose route needed
-    // terminate-after-last-window-closed, which tray_setup turns off.)
+    g_really_quit = 1;
+    // straight through AppKit: applicationShouldTerminate → Now →
+    // applicationWillTerminate → sokol cleanup_cb → engines stop.
     [NSApp terminate:nil];
 }
 @end
@@ -110,7 +112,21 @@ void tray_update(void);
 // Real exits don't rely on it: Quit calls [NSApp terminate:] directly.
 static BOOL no_term_after_last_close(id self, SEL _cmd, NSApplication *app) {
     (void)self; (void)_cmd; (void)app;
+    fprintf(stderr, "tray: last-window-closed → keep running\n");
     return NO;
+}
+
+// Sokol does not implement this. Default is NSTerminateNow, so even a YES
+// from last-window-closed (swizzle missed) used to [terminate:] with exit 0
+// and no crash report — the 0.2.3 vanish after ~1 min. Cancel unless Quit.
+static NSApplicationTerminateReply
+should_terminate(id self, SEL _cmd, NSApplication *app) {
+    (void)self; (void)_cmd; (void)app;
+    if (g_really_quit) return NSTerminateNow;
+    fprintf(stderr, "tray: applicationShouldTerminate cancelled (not a tray Quit)\n");
+    NSWindow *win = (NSWindow *)(uintptr_t)sapp_macos_get_window();
+    if (win) [win orderOut:nil];
+    return NSTerminateCancel;
 }
 
 // Dock-icon click while the window is hidden-warm should bring it back —
@@ -178,12 +194,21 @@ void tray_setup(void) {
     class_addMethod(del,
                     @selector(applicationDockMenu:),
                     (IMP)dock_menu, "@@:@");
+    class_addMethod(del,
+                    @selector(applicationShouldTerminate:),
+                    (IMP)should_terminate, "q@:@");
+
+    // Accessory + no visible windows is eligible for App Nap automatic
+    // termination (exit 0, no report). The engines (resolver/proxy/sync)
+    // must outlive the window.
+    [[NSProcessInfo processInfo] disableAutomaticTermination:@"pepenet engines"];
+    [[NSProcessInfo processInfo] disableSuddenTermination];
 
     // AppKit's deferred last-window-closed check counts VISIBLE windows. A
     // vetoed close / --background orderOut leaves zero, and on some OS
     // versions the swizzle above loses the race — the app then [terminate:]s
     // with exit 0 and no crash report. An off-screen, never-closed window
-    // keeps the count ≥ 1 for the process lifetime.
+    // that cannot hide keeps the count ≥ 1 for the process lifetime.
     if (!g_keep) {
         g_keep = [[NSWindow alloc] initWithContentRect:NSMakeRect(-10000, -10000, 1, 1)
                                              styleMask:NSWindowStyleMaskBorderless
@@ -191,11 +216,13 @@ void tray_setup(void) {
                                                  defer:NO];
         g_keep.releasedWhenClosed = NO;
         g_keep.ignoresMouseEvents = YES;
+        g_keep.canHide = NO;
+        g_keep.hidesOnDeactivate = NO;
         g_keep.alphaValue = 0;
         g_keep.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
                                     NSWindowCollectionBehaviorStationary |
                                     NSWindowCollectionBehaviorIgnoresCycle;
-        [g_keep orderBack:nil];
+        [g_keep orderFront:nil];
     }
 
     g_target = [[TrayTarget alloc] init];

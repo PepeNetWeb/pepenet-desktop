@@ -6,4 +6,4 @@
 TESTS += t_update
 
 t_update: t_update.c $(SRC)/update.c $(SRC)/update.h
-	$(CC) $(CFLAGS) $(INC) -o $@ t_update.c $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INC) -o $@ t_update.c $(LDFLAGS) $(EXTRA_LIBS)

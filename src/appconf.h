@@ -26,9 +26,10 @@
                                                 // MACOSX_BUNDLE_GUI_IDENTIFIER
                                                 // must stay in sync
 // where releases live — the notify-only update check (update.c) resolves
-// <url>/latest and the footer notice sends the user there. NEVER a download
+// <url>/latest (the server must 302 it to <url>/tag/<version>) and the footer
+// notice sends the user there. NEVER a download
 // endpoint: the app fetches nothing executable, the human does the install.
-#define APP_RELEASES_URL "https://github.com/PepeNetWeb/pepenet-desktop/releases"
+#define APP_RELEASES_URL "https://pepecoin.surf/releases"
 
 // ── storage ──────────────────────────────────────────────────────────────────
 // The per-user data directory NAME (a dotfolder under $HOME by default):

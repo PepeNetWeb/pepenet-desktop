@@ -1,0 +1,18 @@
+[package]
+name = "sm"
+version = "0.1.0"
+edition = "2021"
+
+# ZERO external crates — every primitive (SHA-256, RIPEMD-160, SplitMix64) is self-rolled
+# from std only, per the clean-room brief. This section MUST stay empty.
+[dependencies]
+
+[[bin]]
+name = "sm"
+path = "src/main.rs"
+
+[profile.release]
+# Conformance is run in --release. We deliberately do NOT rely on overflow-checks:
+# every consensus arithmetic op uses explicit checked_/wrapping_/saturating_ so the
+# result is identical in debug and release. (See SPEC-RATIONALE.md.)
+overflow-checks = false

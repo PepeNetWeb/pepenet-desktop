@@ -9,6 +9,7 @@
 // eviction is the lease-lapse sweep.
 #include "dnsnet.h"
 #include "appconf.h"
+#include "appinst.h"
 #include "wallet.h"
 #include "zonekey.h"        // ZK (hot zone key) + zonekey_cert (delegation cert)
 
@@ -40,9 +41,12 @@ typedef struct {
     int      clear;                 // a whole-zone clear (rec ignored)
 } PubReq;
 
-static struct {
+struct Dnsnet {
     // config (dnsnet_boot)
     char coin[16];
+    char tld[16];
+    char dot_tld[8];
+    char name[32];
     char chain_db[512], store_db[512], conf[512];
     struct { char host[80]; uint16_t port; } peers[8];
     int      n_peers;
@@ -83,7 +87,16 @@ static struct {
 
     // UI-thread zone reads (own read handle, opened lazily)
     SpState *ui_st;
-} g = { .mu = PTHREAD_MUTEX_INITIALIZER, .dns_port = APP_DNS_PORT };
+};
+static struct Dnsnet g_store = {
+    .mu = PTHREAD_MUTEX_INITIALIZER,
+    .dns_port = APP_DNS_PORT,
+    .tld = APP_TLD,
+    .dot_tld = APP_DOT_TLD,
+    .name = APP_NAME,
+};
+static struct Dnsnet *g = &g_store;
+static char g_chain_override[512];
 
 // ── test-mode oracle (PEPENET_DNS_TEST) ───────────────────────────────────────
 // ownership from view.c's test table; headers are a deterministic fake so the
@@ -93,23 +106,23 @@ static int t_owner(void *u, const char *name, uint8_t owner[20]) {
 }
 static int t_header(void *u, uint32_t height, uint8_t out[32]) {
     (void)u;
-    if (height > g.test_tip) return 0;
+    if (height > g->test_tip) return 0;
     uint8_t seed[8] = { 't','s','t',0, (uint8_t)height, (uint8_t)(height >> 8),
                         (uint8_t)(height >> 16), (uint8_t)(height >> 24) };
     sp_sha256(seed, sizeof seed, out);
     return 1;
 }
-static uint32_t t_tip(void *u) { (void)u; return g.test_tip; }
+static uint32_t t_tip(void *u) { (void)u; return g->test_tip; }
 
 // open the oracle pair for one thread: chain mode → DnsChain, test mode → view
 static int oracle_open(DnsChain **ch, SpView **tvw, SpChainOracle *orc) {
-    if (g.test) {
-        *tvw = sp_view_open_test(g.test_names, g.test_tip);
+    if (g->test) {
+        *tvw = sp_view_open_test(g->test_names, g->test_tip);
         if (!*tvw) return 0;
         orc->u = *tvw; orc->owner_now = t_owner; orc->header_at = t_header; orc->tip = t_tip;
         return 1;
     }
-    *ch = dns_chain_open(g.chain_db);
+    *ch = dns_chain_open(g->chain_db);
     if (!*ch) return 0;
     *orc = dns_chain_oracle(*ch);
     return 1;
@@ -123,45 +136,53 @@ static void oracle_close(DnsChain *ch, SpView *tvw) {
 static void conf_write_default(const char *path) {
     FILE *f = fopen(path, "wx");        // never clobber an existing conf
     if (!f) return;
+    /* g->name / tld / dns_port are the instance. The static initializer is
+     * the appconf.h default, so a pep boot still writes "PepeNet", ".pepe"
+     * and 15353. The discovery mark stays the build's IDX_DNET_MARK. */
     fprintf(f,
-        "# " APP_NAME " — the dns plane (zone records over the chain wire)\n"
+        "# %s — the dns plane (zone records over the chain wire)\n"
         "# Firehose mirror by construction: bounded at 8 KB of held records per\n"
         "# name (edits replace, deletes tombstone, records live until the name's\n"
         "# lease lapses — no store TTL). Peers come from the chain crawl's\n"
-        "# \"" IDX_DNET_MARK "\" set; add `peer=host:port` to pin a direct one.\n"
+        "# \"%s\" set; add `peer=host:port` to pin a direct one.\n"
         "#\n"
         "# The node listens on the coin's chain port by default, so a crawling\n"
         "# peer discovers it — reaching it is up to you (port-forward / DMZ the\n"
         "# port). Set `listen=0` for dial-only (NAT'd, outbound gossip only),\n"
         "# or `listen=<port>` to override.\n"
         "#\n"
-        "# local resolver port (scoped to " APP_DOT_TLD "; point "
-        "/etc/resolver/" APP_TLD " here)\n"
-        "dns_port=" APP_DNS_PORT_S "\n");
+        "# local resolver port (scoped to %s; point "
+        "/etc/resolver/%s here)\n"
+        "dns_port=%d\n",
+        g->name[0] ? g->name : APP_NAME,
+        IDX_DNET_MARK,
+        g->dot_tld[0] ? g->dot_tld : APP_DOT_TLD,
+        g->tld[0] ? g->tld : APP_TLD,
+        g->dns_port ? g->dns_port : APP_DNS_PORT);
     fclose(f);
 }
 
 static void add_peer(const char *hp) {
-    if (g.n_peers >= 8) return;
+    if (g->n_peers >= 8) return;
     const char *colon = strrchr(hp, ':');
     if (!colon || colon == hp) return;
     size_t hl = (size_t)(colon - hp);
-    if (hl >= sizeof g.peers[0].host) return;
-    memcpy(g.peers[g.n_peers].host, hp, hl);
-    g.peers[g.n_peers].host[hl] = 0;
-    g.peers[g.n_peers].port = (uint16_t)atoi(colon + 1);
-    if (!g.peers[g.n_peers].port) return;
-    for (int i = 0; i < g.n_peers; i++)          // dupes: conf + discovered overlap
-        if (g.peers[i].port == g.peers[g.n_peers].port &&
-            !strcmp(g.peers[i].host, g.peers[g.n_peers].host)) return;
-    g.n_peers++;
+    if (hl >= sizeof g->peers[0].host) return;
+    memcpy(g->peers[g->n_peers].host, hp, hl);
+    g->peers[g->n_peers].host[hl] = 0;
+    g->peers[g->n_peers].port = (uint16_t)atoi(colon + 1);
+    if (!g->peers[g->n_peers].port) return;
+    for (int i = 0; i < g->n_peers; i++)          // dupes: conf + discovered overlap
+        if (g->peers[i].port == g->peers[g->n_peers].port &&
+            !strcmp(g->peers[i].host, g->peers[g->n_peers].host)) return;
+    g->n_peers++;
 }
 
 // crawl-discovered pepenet candidates land here (dnsnet.h), post-boot pre-start
 void dnsnet_add_peer(const char *hostport) {
-    int before = g.n_peers;
+    int before = g->n_peers;
     add_peer(hostport);
-    if (g.n_peers > before)
+    if (g->n_peers > before)
         fprintf(stderr, "dnsnet: mesh candidate %s (discovered)\n", hostport);
 }
 
@@ -184,46 +205,46 @@ static void conf_read(const char *path) {
         *eq = 0;
         char *k = trim(s), *v = trim(eq + 1);
         if (!strcmp(k, "peer")) add_peer(v);
-        else if (!strcmp(k, "listen")) g.listen = (uint16_t)atoi(v);
-        else if (!strcmp(k, "dns_port")) g.dns_port = atoi(v);
+        else if (!strcmp(k, "listen")) g->listen = (uint16_t)atoi(v);
+        else if (!strcmp(k, "dns_port")) g->dns_port = atoi(v);
     }
     fclose(f);
 }
 
 int dnsnet_boot(const char *coin, const char *chain_dbpath) {
-    snprintf(g.coin, sizeof g.coin, "%s", coin);
-    snprintf(g.chain_db, sizeof g.chain_db, "%s", chain_dbpath);
+    snprintf(g->coin, sizeof g->coin, "%s", coin);
+    snprintf(g->chain_db, sizeof g->chain_db, "%s", chain_dbpath);
     /* listen by default on the coin's chain port — a node is inbound-reachable
      * (crawl-discoverable) out of the box; reaching it is the operator's job
      * (port-forward / DMZ). conf `listen=0` or PEPENET_DNS_LISTEN=0 opts out. */
-    g.listen = idx_coin_port(coin);
+    g->listen = idx_coin_port(coin);
     char dbdup[512];
     snprintf(dbdup, sizeof dbdup, "%s", chain_dbpath);
     const char *dir = dirname(dbdup);
-    snprintf(g.store_db, sizeof g.store_db, "%s/dns-%s.db", dir, coin);
-    snprintf(g.conf, sizeof g.conf, "%s/dns-%s.conf", dir, coin);
+    snprintf(g->store_db, sizeof g->store_db, "%s/dns-%s.db", dir, coin);
+    snprintf(g->conf, sizeof g->conf, "%s/dns-%s.conf", dir, coin);
 
-    conf_write_default(g.conf);
-    conf_read(g.conf);
+    conf_write_default(g->conf);
+    conf_read(g->conf);
 
     const char *env;
-    if ((env = getenv("PEPENET_DNS_PEER")) != NULL) { g.n_peers = 0; add_peer(env); }
-    if ((env = getenv("PEPENET_DNS_LISTEN")) != NULL) g.listen = (uint16_t)atoi(env);
-    if ((env = getenv("PEPENET_DNS_PORT")) != NULL) g.dns_port = atoi(env);
+    if ((env = getenv("PEPENET_DNS_PEER")) != NULL) { g->n_peers = 0; add_peer(env); }
+    if ((env = getenv("PEPENET_DNS_LISTEN")) != NULL) g->listen = (uint16_t)atoi(env);
+    if ((env = getenv("PEPENET_DNS_PORT")) != NULL) g->dns_port = atoi(env);
     if ((env = getenv("PEPENET_DNS_TEST")) != NULL) {
         const char *colon = strrchr(env, ':');
         if (colon && colon != env) {
-            snprintf(g.test_names, sizeof g.test_names, "%.*s", (int)(colon - env), env);
-            g.test_tip = (uint32_t)strtoul(colon + 1, NULL, 10);
-            g.test = 1;
+            snprintf(g->test_names, sizeof g->test_names, "%.*s", (int)(colon - env), env);
+            g->test_tip = (uint32_t)strtoul(colon + 1, NULL, 10);
+            g->test = 1;
         }
     }
     return 1;
 }
 
-int dnsnet_test_view(void) { return g.test; }
-const char *dnsnet_store_path(void) { return g.store_db; }
-const char *dnsnet_chain_path(void) { return g.chain_db; }
+int dnsnet_test_view(void) { return g->test; }
+const char *dnsnet_store_path(void) { return g->store_db; }
+const char *dnsnet_chain_path(void) { return g->chain_db; }
 
 // ── net thread ────────────────────────────────────────────────────────────────
 // drain the UI's publish queue: build each record as an anchor-signed op and
@@ -233,19 +254,19 @@ const char *dnsnet_chain_path(void) { return g.chain_db; }
 // do we fall back to owner-signing with the wallet key directly.
 static void drain_publishes(void) {
     for (;;) {
-        pthread_mutex_lock(&g.mu);
+        pthread_mutex_lock(&g->mu);
         PubReq rq;
-        int have = g.nq > 0;
+        int have = g->nq > 0;
         if (have) {
-            rq = g.q[0];
-            memmove(g.q, g.q + 1, (size_t)(g.nq - 1) * sizeof g.q[0]);
-            g.nq--;
+            rq = g->q[0];
+            memmove(g->q, g->q + 1, (size_t)(g->nq - 1) * sizeof g->q[0]);
+            g->nq--;
         }
-        pthread_mutex_unlock(&g.mu);
+        pthread_mutex_unlock(&g->mu);
         if (!have) break;
 
         char out[160], err[128] = "";
-        uint32_t tip = g.orc.tip(g.orc.u);
+        uint32_t tip = g->orc.tip(g->orc.u);
         uint8_t cert[256];
         int cl = ZK.ok ? zonekey_cert(rq.name, tip, cert, sizeof cert) : 0;
         const uint8_t *priv = cl > 0 ? ZK.seckey : WLT.seckey;
@@ -255,12 +276,12 @@ static void drain_publishes(void) {
         int rc;
         char tn[12];
         if (rq.clear) {
-            rc = dns_state_clear(g.st, &g.orc, rq.name, priv, pub,
+            rc = dns_state_clear(g->st, &g->orc, rq.name, priv, pub,
                                  ct, cert, cl, err, sizeof err);
             if (rc == 1) snprintf(out, sizeof out, "CLEAR %s", rq.name);
             else snprintf(out, sizeof out, "CLEAR refused rc=%d: %s", rc, err);
         } else if (rq.rec.rdlen == 0) {
-            rc = dns_state_del(g.st, &g.orc, rq.name, rq.rec.label, rq.rec.type,
+            rc = dns_state_del(g->st, &g->orc, rq.name, rq.rec.label, rq.rec.type,
                                priv, pub, ct, cert, cl, err, sizeof err);
             if (rc == 1)
                 snprintf(out, sizeof out, "DEL %s %s",
@@ -268,23 +289,26 @@ static void drain_publishes(void) {
                          zone_type_name(rq.rec.type, tn, sizeof tn));
             else snprintf(out, sizeof out, "DEL refused rc=%d: %s", rc, err);
         } else {
-            rc = dns_state_put(g.st, &g.orc, rq.name, &rq.rec,
+            rc = dns_state_put(g->st, &g->orc, rq.name, &rq.rec,
                                priv, pub, ct, cert, cl, err, sizeof err);
+            uint8_t mag[2] = { 0, 0 };
+            idx_coin_onchain_magic(g->coin[0] ? g->coin : APP_COIN, mag);
             if (rc == 1)
                 snprintf(out, sizeof out, "PUT %s %s%s",
                          rq.rec.label[0] ? rq.rec.label : "@",
                          zone_type_name(rq.rec.type, tn, sizeof tn),
-                         dns_rec_escape_hatchable(&rq.rec) ? "" : "  [>80B: gossip-only]");
+                         dns_rec_escape_hatchable(&rq.rec, (mag[0] || mag[1]) ? mag : NULL)
+                             ? "" : "  [>80B: gossip-only]");
             else
                 snprintf(out, sizeof out, "PUT refused rc=%d: %s", rc, err);
         }
         if (rc == -2) snprintf(err, sizeof err, "chain not synced far enough to anchor");
         if (rc == 1) dnsnet_announce(rq.name);
 
-        pthread_mutex_lock(&g.mu);
-        snprintf(g.last_pub, sizeof g.last_pub, "%s", out);
-        if (rc != 1) snprintf(g.last_err, sizeof g.last_err, "%s", err);
-        pthread_mutex_unlock(&g.mu);
+        pthread_mutex_lock(&g->mu);
+        snprintf(g->last_pub, sizeof g->last_pub, "%s", out);
+        if (rc != 1) snprintf(g->last_err, sizeof g->last_err, "%s", err);
+        pthread_mutex_unlock(&g->mu);
         if (rc != 1) fprintf(stderr, "dnsnet: publish refused: %s\n", err);
     }
 }
@@ -310,7 +334,7 @@ typedef void (*mesh_send_fn)(void *peer, const char *cmd, const uint8_t *pay, si
 static void *mesh_up(void *ud, void *peer, mesh_send_fn send) {
     (void)ud;
     void *h = dnsnet_up(peer, (dnsnet_send_fn)send);
-    if (h) { pthread_mutex_lock(&g.mu); g.peers_up++; pthread_mutex_unlock(&g.mu); }
+    if (h) { pthread_mutex_lock(&g->mu); g->peers_up++; pthread_mutex_unlock(&g->mu); }
     return h;
 }
 static void mesh_msg(void *ud, void *handle, const char *name, const uint8_t *pay, int n) {
@@ -320,7 +344,7 @@ static void mesh_msg(void *ud, void *handle, const char *name, const uint8_t *pa
 static void mesh_down(void *ud, void *handle) {
     (void)ud;
     dnsnet_down(handle);
-    pthread_mutex_lock(&g.mu); if (g.peers_up > 0) g.peers_up--; pthread_mutex_unlock(&g.mu);
+    pthread_mutex_lock(&g->mu); if (g->peers_up > 0) g->peers_up--; pthread_mutex_unlock(&g->mu);
 }
 static void mesh_tick(void *ud) {
     (void)ud;
@@ -333,16 +357,16 @@ static void mesh_tick(void *ud) {
     dnsnet_tick();
     if (now >= next_refresh) {
         next_refresh = now + 5;
-        struct count_acc a = { 0, 0, g.st };
-        sp_state_names(g.st, count_names_cb, &a);
-        pthread_mutex_lock(&g.mu);
-        g.zones = a.zones; g.records = a.records;
-        pthread_mutex_unlock(&g.mu);
+        struct count_acc a = { 0, 0, g->st };
+        sp_state_names(g->st, count_names_cb, &a);
+        pthread_mutex_lock(&g->mu);
+        g->zones = a.zones; g->records = a.records;
+        pthread_mutex_unlock(&g->mu);
     }
     if (!next_sweep) next_sweep = now + 86400;
     if (now >= next_sweep) {
         next_sweep = now + 86400;
-        int n = dns_state_sweep(g.st, &g.orc);
+        int n = dns_state_sweep(g->st, &g->orc);
         if (n) fprintf(stderr, "dnsnet: sweep dropped %d lapsed name(s)\n", n);
     }
 }
@@ -352,24 +376,24 @@ static void *net_main(void *arg) {
     // first boot: the engine may not have created/schema'd the chain db yet —
     // keep retrying (the oracle prepares against the names table) until it
     // appears or we are stopped, instead of dying and leaving the plane dark.
-    snprintf(g.phase, sizeof g.phase, "waiting for chain db");
+    snprintf(g->phase, sizeof g->phase, "waiting for chain db");
     { int tries = 0;
-      while (!g.stop && !oracle_open(&g.ch, &g.tvw, &g.orc)) {
+      while (!g->stop && !oracle_open(&g->ch, &g->tvw, &g->orc)) {
           if (++tries % 30 == 0)
               fprintf(stderr, "dnsnet: still waiting for chain db %s (%d tries)\n",
-                      g.chain_db, tries);
-          for (int i = 0; i < 10 && !g.stop; i++) usleep(100000);
+                      g->chain_db, tries);
+          for (int i = 0; i < 10 && !g->stop; i++) usleep(100000);
       } }
-    if (g.stop) { snprintf(g.phase, sizeof g.phase, "stopped"); g.running = 0; return NULL; }
-    snprintf(g.phase, sizeof g.phase, "opening zone store");
-    g.st = sp_state_open(g.store_db);
-    if (!g.st) {
-        fprintf(stderr, "dnsnet: FATAL zone store open failed: %s\n", g.store_db);
-        snprintf(g.phase, sizeof g.phase, "store open FAILED");
-        oracle_close(g.ch, g.tvw); g.running = 0; return NULL;
+    if (g->stop) { snprintf(g->phase, sizeof g->phase, "stopped"); g->running = 0; return NULL; }
+    snprintf(g->phase, sizeof g->phase, "opening zone store");
+    g->st = sp_state_open(g->store_db);
+    if (!g->st) {
+        fprintf(stderr, "dnsnet: FATAL zone store open failed: %s\n", g->store_db);
+        snprintf(g->phase, sizeof g->phase, "store open FAILED");
+        oracle_close(g->ch, g->tvw); g->running = 0; return NULL;
     }
-    snprintf(g.phase, sizeof g.phase, "mesh");
-    dnsnet_init(g.st, g.orc, 0);
+    snprintf(g->phase, sizeof g->phase, "mesh");
+    dnsnet_init(g->st, g->orc, 0);
 
     // dial list: the PepeNet seeds (chain port) + crawl-discovered IDX_DNET_MARK
     // peers. Default is dial-only (listen 0) — a NAT'd node gossips over its
@@ -388,7 +412,7 @@ static void *net_main(void *arg) {
     struct { char host[80]; uint16_t port; char ip[64]; } seed[4];
     int nseed = 0;
     { char buf[256]; snprintf(buf, sizeof buf, "%s", APP_SEED_PEER);
-      uint16_t dport = idx_coin_port(g.coin);
+      uint16_t dport = idx_coin_port(g->coin);
       for (char *sv = NULL, *t = strtok_r(buf, ",", &sv); t && nseed < 4; t = strtok_r(NULL, ",", &sv)) {
           snprintf(seed[nseed].host, sizeof seed[nseed].host, "%s", t);
           seed[nseed].port = dport;
@@ -405,17 +429,17 @@ static void *net_main(void *arg) {
           dl += snprintf(dial + dl, sizeof dial - dl, "%s%s", dl ? "," : "", t);
           nseed++;
       } }
-    for (int i = 0; i < g.n_peers && dl < (int)sizeof dial - 96; i++) {
+    for (int i = 0; i < g->n_peers && dl < (int)sizeof dial - 96; i++) {
         int skip = 0;
         for (int s = 0; s < nseed; s++)
-            if (!strcmp(g.peers[i].host, seed[s].host) ||
-                (seed[s].ip[0] && g.peers[i].port == seed[s].port &&
-                 !strcmp(g.peers[i].host, seed[s].ip))) { skip = 1; break; }
+            if (!strcmp(g->peers[i].host, seed[s].host) ||
+                (seed[s].ip[0] && g->peers[i].port == seed[s].port &&
+                 !strcmp(g->peers[i].host, seed[s].ip))) { skip = 1; break; }
         if (skip) continue;
         dl += snprintf(dial + dl, sizeof dial - dl, "%s%s:%u", dl ? "," : "",
-                       g.peers[i].host, g.peers[i].port);
+                       g->peers[i].host, g->peers[i].port);
     }
-    { sqlite3 *cdb = idx_db_open(g.chain_db);
+    { sqlite3 *cdb = idx_db_open(g->chain_db);
       if (cdb) {
           idx_db_peers_scrub(cdb);   // pre-fix hostname rows must not seed dials
           char dn[8][80]; int nd = idx_db_peers_agent(cdb, IDX_DNET_MARK, dn, 8);
@@ -433,76 +457,78 @@ static void *net_main(void *arg) {
           idx_db_close(cdb);
       } }
 
-    IdxMeshHooks mesh = { mesh_up, mesh_msg, mesh_down, mesh_tick, NULL };
-    if (g.listen)
-        fprintf(stderr, "dnsnet: listening on chain port %u (inbound + crawl-discoverable)\n", g.listen);
-    idx_serve(g.coin, g.chain_db, g.listen /* 0 = dial-only */, dial, &g.stop, &mesh);
+    IdxMeshHooks mesh = { mesh_up, mesh_msg, mesh_down, mesh_tick, NULL, serve_conn_misbehave };
+    dnsnet_set_misbehave(serve_conn_misbehave);
+    if (g->listen)
+        fprintf(stderr, "dnsnet: listening on chain port %u (inbound + crawl-discoverable)\n", g->listen);
+    idx_serve(g->coin, g->chain_db, g->listen /* 0 = dial-only */, dial, &g->stop, &mesh);
 
-    sp_state_close(g.st);
-    oracle_close(g.ch, g.tvw);
-    snprintf(g.phase, sizeof g.phase, "stopped");
-    g.running = 0;
+    sp_state_close(g->st);
+    oracle_close(g->ch, g->tvw);
+    snprintf(g->phase, sizeof g->phase, "stopped");
+    g->running = 0;
     return NULL;
 }
 
 // ── resolver thread ───────────────────────────────────────────────────────────
 static void *res_main(void *arg) {
     (void)arg;
-    DnsdCore *dc = &g.core;
+    DnsdCore *dc = &g->core;
     memset(dc, 0, sizeof *dc);
-    dc->suffix = APP_TLD;
+    dc->suffix = g->tld[0] ? g->tld : APP_TLD;
     dc->tls_redirect = 1;                       // steer DANE names at the proxy
     dc->tls_redirect_ip[0] = 127; dc->tls_redirect_ip[3] = 1;
     dc->ufd = dc->tfd = -1;
 
-    while (!g.stop && !oracle_open(&g.res_ch, &g.res_tvw, &dc->oracle))
-        for (int i = 0; i < 10 && !g.stop; i++) usleep(100000);
-    if (g.stop) { g.res_running = 0; return NULL; }
-    dc->st = sp_state_open(g.store_db);
+    while (!g->stop && !oracle_open(&g->res_ch, &g->res_tvw, &dc->oracle))
+        for (int i = 0; i < 10 && !g->stop; i++) usleep(100000);
+    if (g->stop) { g->res_running = 0; return NULL; }
+    dc->st = sp_state_open(g->store_db);
     if (!dc->st) {
-        oracle_close(g.res_ch, g.res_tvw);
-        g.res_running = 0;
+        oracle_close(g->res_ch, g->res_tvw);
+        g->res_running = 0;
         return NULL;
     }
 
-    if (dnsd_core_bind(dc, "127.0.0.1", g.dns_port) != 0) {
-        sp_state_close(dc->st); oracle_close(g.res_ch, g.res_tvw);
-        g.res_running = 0;
+    if (dnsd_core_bind(dc, "127.0.0.1", g->dns_port) != 0) {
+        sp_state_close(dc->st); oracle_close(g->res_ch, g->res_tvw);
+        g->res_running = 0;
         return NULL;
     }
-    fprintf(stderr, "dnsnet: resolver on 127.0.0.1:%d (.%s)\n", g.dns_port, dc->suffix);
+    fprintf(stderr, "dnsnet: resolver on 127.0.0.1:%d (.%s)\n", g->dns_port, dc->suffix);
 
     DnsdCore *dc53 = NULL;
 #ifdef _WIN32
     // Windows' per-TLD DNS routing (NRPT) steers ".<tld>" at 127.0.0.1 but
     // cannot name a port — serve the OS resolver path on :53 too. Loopback
     // only, best-effort: a busy :53 (WSL/ICS/docker) just disables that path.
-    if (g.dns_port != 53) {
-        dc53 = &g.core53;
+    if (g->dns_port != 53) {
+        dc53 = &g->core53;
         memset(dc53, 0, sizeof *dc53);
-        dc53->suffix = APP_TLD;
+        dc53->suffix = g->tld[0] ? g->tld : APP_TLD;
         dc53->tls_redirect = 1;
         dc53->tls_redirect_ip[0] = 127; dc53->tls_redirect_ip[3] = 1;
         dc53->ufd = dc53->tfd = -1;
-        int up = oracle_open(&g.res_ch53, &g.res_tvw53, &dc53->oracle);
+        int up = oracle_open(&g->res_ch53, &g->res_tvw53, &dc53->oracle);
         if (up) {
-            dc53->st = sp_state_open(g.store_db);
+            dc53->st = sp_state_open(g->store_db);
             up = dc53->st && dnsd_core_bind(dc53, "127.0.0.1", 53) == 0;
         }
         if (up)
             fprintf(stderr, "dnsnet: resolver also on 127.0.0.1:53 (the NRPT path)\n");
         else {
             if (dc53->st) { sp_state_close(dc53->st); dc53->st = NULL; }
-            oracle_close(g.res_ch53, g.res_tvw53);
-            g.res_ch53 = NULL; g.res_tvw53 = NULL;
+            oracle_close(g->res_ch53, g->res_tvw53);
+            g->res_ch53 = NULL; g->res_tvw53 = NULL;
             fprintf(stderr, "dnsnet: 127.0.0.1:53 unavailable — system "
-                            APP_DOT_TLD " resolution off until it frees up\n");
+                            "%s resolution off until it frees up\n",
+                    g->dot_tld[0] ? g->dot_tld : APP_DOT_TLD);
             dc53 = NULL;
         }
     }
 #endif
 
-    while (!g.stop) {
+    while (!g->stop) {
         dnsd_core_poll(dc, dc53 ? 200 : 500);
         if (dc53) dnsd_core_poll(dc53, 200);
     }
@@ -511,98 +537,121 @@ static void *res_main(void *arg) {
     if (dc53) {
         dnsd_core_close(dc53);
         sp_state_close(dc53->st);
-        oracle_close(g.res_ch53, g.res_tvw53);
+        oracle_close(g->res_ch53, g->res_tvw53);
     }
 #endif
     dnsd_core_close(dc);
     sp_state_close(dc->st);
-    oracle_close(g.res_ch, g.res_tvw);
-    g.res_running = 0;
+    oracle_close(g->res_ch, g->res_tvw);
+    g->res_running = 0;
     return NULL;
 }
 
 // ── lifecycle (UI thread) ─────────────────────────────────────────────────────
 int dnsnet_start(void) {
-    if (g.started) return 1;
+    if (g->started) return 1;
     // create/repair the store HERE, before either thread or the UI reader can
     // touch the path (a crashed first run leaves a 0-byte db)
-    SpState *st = sp_state_open(g.store_db);
+    SpState *st = sp_state_open(g->store_db);
     if (!st) return 0;
     sp_state_close(st);
-    g.stop = 0;
-    g.started = g.running = g.res_running = 1;
-    if (pthread_create(&g.net_th, NULL, net_main, NULL) != 0) {
-        g.started = g.running = g.res_running = 0;
+    g->stop = 0;
+    g->started = g->running = g->res_running = 1;
+    if (pthread_create(&g->net_th, NULL, net_main, NULL) != 0) {
+        g->started = g->running = g->res_running = 0;
         return 0;
     }
-    if (pthread_create(&g.res_th, NULL, res_main, NULL) != 0) {
-        g.stop = 1;
-        pthread_join(g.net_th, NULL);
-        g.started = g.running = g.res_running = 0;
+    if (pthread_create(&g->res_th, NULL, res_main, NULL) != 0) {
+        g->stop = 1;
+        pthread_join(g->net_th, NULL);
+        g->started = g->running = g->res_running = 0;
         return 0;
     }
     return 1;
 }
 
+void dnsnet_use_chain_db(const char *db) {
+    if (!db) { g_chain_override[0] = 0; return; }
+    snprintf(g_chain_override, sizeof g_chain_override, "%s", db);
+}
+
+Dnsnet *dnsnet_start_inst(const struct AppInstance *inst) {
+    if (!inst || g->started || !g_chain_override[0]) return NULL;
+    snprintf(g->tld, sizeof g->tld, "%s", inst->tld ? inst->tld : APP_TLD);
+    snprintf(g->dot_tld, sizeof g->dot_tld, ".%s", g->tld);
+    snprintf(g->name, sizeof g->name, "%s", inst->name ? inst->name : APP_NAME);
+    g->dns_port = inst->dns_port;
+    /* Serve and sync both read this process global. One buffer, one mark. */
+    static char agent[128];
+    snprintf(agent, sizeof agent, "%s", inst->chain_agent ? inst->chain_agent : "");
+    idx_sync_agent = agent;
+    if (!dnsnet_boot(inst->coin, g_chain_override)) return NULL;
+    /* A conf left behind with the other chain's port must not win. The env
+     * override still does — same knob the desktop honors. */
+    if (!getenv("PEPENET_DNS_PORT")) g->dns_port = inst->dns_port;
+    if (!dnsnet_start()) return NULL;
+    return g;
+}
+
 void dnsnet_stop(void) {
-    if (!g.started) return;
-    g.stop = 1;
-    pthread_join(g.net_th, NULL);
-    pthread_join(g.res_th, NULL);
-    if (g.ui_st) { sp_state_close(g.ui_st); g.ui_st = NULL; }
-    g.started = 0;
+    if (!g->started) return;
+    g->stop = 1;
+    pthread_join(g->net_th, NULL);
+    pthread_join(g->res_th, NULL);
+    if (g->ui_st) { sp_state_close(g->ui_st); g->ui_st = NULL; }
+    g->started = 0;
 }
 
 // ── UI-thread surface ─────────────────────────────────────────────────────────
 void dnsnet_status(DnsStatus *out) {
     memset(out, 0, sizeof *out);
-    out->running = g.running;
-    out->resolver_running = g.res_running;
-    out->resolver_port = g.dns_port;
-    pthread_mutex_lock(&g.mu);
-    out->queued = g.nq;
-    snprintf(out->phase, sizeof out->phase, "%s", g.phase[0] ? g.phase : "not started");
-    out->peers = g.peers_up;
-    out->zones_held = g.zones;
-    out->records_held = g.records;
-    snprintf(out->last_err, sizeof out->last_err, "%s", g.last_err);
-    snprintf(out->last_pub, sizeof out->last_pub, "%s", g.last_pub);
-    pthread_mutex_unlock(&g.mu);
+    out->running = g->running;
+    out->resolver_running = g->res_running;
+    out->resolver_port = g->dns_port;
+    pthread_mutex_lock(&g->mu);
+    out->queued = g->nq;
+    snprintf(out->phase, sizeof out->phase, "%s", g->phase[0] ? g->phase : "not started");
+    out->peers = g->peers_up;
+    out->zones_held = g->zones;
+    out->records_held = g->records;
+    snprintf(out->last_err, sizeof out->last_err, "%s", g->last_err);
+    snprintf(out->last_pub, sizeof out->last_pub, "%s", g->last_pub);
+    pthread_mutex_unlock(&g->mu);
 }
 
 int dnsnet_publish(const char *name, const zone_rec *rec) {
     if (!name || !*name || !rec) return 0;
-    if (!g.running) {           // net thread dead: say so where the tab reads
-        pthread_mutex_lock(&g.mu);
-        snprintf(g.last_pub, sizeof g.last_pub, "publish DROPPED (engine offline: %s)",
-                 g.phase[0] ? g.phase : "not started");
-        snprintf(g.last_err, sizeof g.last_err, "dns engine offline");
-        pthread_mutex_unlock(&g.mu);
+    if (!g->running) {           // net thread dead: say so where the tab reads
+        pthread_mutex_lock(&g->mu);
+        snprintf(g->last_pub, sizeof g->last_pub, "publish DROPPED (engine offline: %s)",
+                 g->phase[0] ? g->phase : "not started");
+        snprintf(g->last_err, sizeof g->last_err, "dns engine offline");
+        pthread_mutex_unlock(&g->mu);
         return 0;
     }
-    pthread_mutex_lock(&g.mu);
-    int ok = g.nq < PUB_CAP;
+    pthread_mutex_lock(&g->mu);
+    int ok = g->nq < PUB_CAP;
     if (ok) {
-        PubReq *q = &g.q[g.nq++];
+        PubReq *q = &g->q[g->nq++];
         snprintf(q->name, sizeof q->name, "%s", name);
         q->rec = *rec;
         q->clear = 0;
     }
-    pthread_mutex_unlock(&g.mu);
+    pthread_mutex_unlock(&g->mu);
     return ok;
 }
 
 int dnsnet_publish_clear(const char *name) {
-    if (!g.running || !name || !*name) return 0;
-    pthread_mutex_lock(&g.mu);
-    int ok = g.nq < PUB_CAP;
+    if (!g->running || !name || !*name) return 0;
+    pthread_mutex_lock(&g->mu);
+    int ok = g->nq < PUB_CAP;
     if (ok) {
-        PubReq *q = &g.q[g.nq++];
+        PubReq *q = &g->q[g->nq++];
         snprintf(q->name, sizeof q->name, "%s", name);
         memset(&q->rec, 0, sizeof q->rec);
         q->clear = 1;
     }
-    pthread_mutex_unlock(&g.mu);
+    pthread_mutex_unlock(&g->mu);
     return ok;
 }
 
@@ -638,15 +687,15 @@ int dnsnet_unpublish_tlsa(const char *host) {
 }
 
 int dnsnet_zone(const char *name, zone *z) {
-    if (!g.started || !name || !*name) return -1;
-    if (!g.ui_st) g.ui_st = sp_state_open(g.store_db);   // lazy read connection
-    if (!g.ui_st) return -1;
-    return dns_state_zone(g.ui_st, name, z);
+    if (!g->started || !name || !*name) return -1;
+    if (!g->ui_st) g->ui_st = sp_state_open(g->store_db);   // lazy read connection
+    if (!g->ui_st) return -1;
+    return dns_state_zone(g->ui_st, name, z);
 }
 
 int64_t dnsnet_zone_bytes(const char *name) {
-    if (!g.started || !name || !*name) return -1;
-    if (!g.ui_st) g.ui_st = sp_state_open(g.store_db);
-    if (!g.ui_st) return -1;
-    return sp_state_sum(g.ui_st, name);
+    if (!g->started || !name || !*name) return -1;
+    if (!g->ui_st) g->ui_st = sp_state_open(g->store_db);
+    if (!g->ui_st) return -1;
+    return sp_state_sum(g->ui_st, name);
 }

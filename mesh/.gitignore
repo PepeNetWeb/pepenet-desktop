@@ -1,0 +1,11 @@
+build/
+libpepenetnet.a
+net_test
+*.o
+state_test
+crypto_test
+jitter_test
+view_test
+wire_test
+wire_test_ubsan
+*.dSYM/

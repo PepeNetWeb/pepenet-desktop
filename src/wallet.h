@@ -65,6 +65,10 @@ int  wallet_restore(const char *mnemonic);
 // The active coin's name ("pep" until something else boots) — display/checks.
 const char *wallet_coin(void);
 
+// Which Coin row the carrier builders prefix with. NULL or "" restores the
+// default instance (APP_COIN). The pointer must outlive the builders.
+void wallet_bind_coin(const char *coin);
+
 // Real base58check validation against the active coin's P2PKH version byte
 // (demo mode validates too — WLT.coin is set from argv without booting keys).
 int wallet_addr_valid(const char *addr);

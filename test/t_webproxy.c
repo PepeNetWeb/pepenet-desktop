@@ -39,8 +39,8 @@
  *   3. Unknown paths get a bounded status and never leak a file from disk.
  *   4. Client sockets are not leaked over hundreds of short connections.
  *
- * Binds only 127.0.0.1 and only the app's own high ports (8443/8444); if either
- * is already in use the suite prints a skip line and exits 0.
+ * Binds only 127.0.0.1 and only EPHEMERAL ports (port 0): never 8443/8444/8445,
+ * 15353 or 443, so it is safe next to a running app (see g_portmap).
  */
 #include "webproxy.h"
 #include "appconf.h"
@@ -49,6 +49,18 @@
 #include "proxy.h"
 #include "resolve.h"
 #include "sscert.h"
+/* dane-08: the fold-db readers (indexer/src/db.h). Declared here, not
+ * included, because db.h pulls the protocol's sha256.h whose SHA256_CTX
+ * clashes with OpenSSL's in this translation unit. */
+#include <sqlite3.h>
+sqlite3 *idx_db_open_ro(const char *path);
+void idx_db_close(sqlite3 *db);
+int  idx_db_resolve(sqlite3 *db, const char *name, char owner_hex[41], char *state_out);
+int  idx_db_owned(sqlite3 *db, const char *h160hex,
+                  void (*cb)(void *u, const char *name, int64_t lease_expiry, int st), void *u);
+int64_t idx_db_names(sqlite3 *db, const char *prefix, int64_t offset, int limit,
+                     void (*cb)(void *u, const char *name, const uint8_t *owner,
+                                int64_t lease_expiry, int st, uint64_t price), void *u);
 
 #include <dirent.h>
 #include <errno.h>
@@ -64,14 +76,32 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
 static int g_fail;
 static int g_checks;
-/* the port the stub :8443 DANE backend actually bound (see proxy_listen below:
- * it falls back to an ephemeral port when a foreign process owns APP_PROXY_PORT) */
-static int g_backend_port = APP_PROXY_PORT;
+/* EPHEMERAL PORTS ONLY. The stub proxy_listen() below binds port 0 for every
+ * listener webproxy.c asks for (APP_PROXY_PORT, APP_PAC_PORT, APP_PROXY_PF_PORT,
+ * 443) and records logical -> actual here. webproxy.c is compiled with
+ * -Dconnect=t_wp_connect (mk/webproxy.mk) so its dial_loopback(APP_PROXY_PORT)
+ * is steered to the actual backend port. The suite therefore never binds or
+ * dials the app's fixed ports, and runs alongside a live PepeNet. */
+static int g_db_opens, g_db_closes;   /* dane-08 */
+static int g_ca_ensure_calls;      /* dane-01: passthrough must never mint */
+static int g_serve_null_root;      /* dane-01: no TLS serve without a root */
+#define PORTMAP_MAX 8
+static struct { int logical, actual; } g_portmap[PORTMAP_MAX];
+static int g_nport;
+static int port_actual(int logical) {
+    for (int i = 0; i < g_nport; i++)
+        if (g_portmap[i].logical == logical) return g_portmap[i].actual;
+    return -1;
+}
+/* actual ports of the stub DANE backend and the PAC front door (-1 = unbound) */
+#define g_backend_port port_actual(APP_PROXY_PORT)
+#define g_pac_port     port_actual(APP_PAC_PORT)
 #define CHECK(cond, name) do { \
     g_checks++; \
     if (cond) printf("ok   %s\n", name); \
@@ -150,6 +180,29 @@ static int read_resp(int fd, char *buf, size_t cap, int ms, int mode, int *close
     }
 }
 
+/* Tunnel payload is RAW bytes, not HTTP: read until `needle` arrives (or EOF /
+ * deadline). Returns bytes read, or -1 on deadline with the needle unseen.
+ * (read_resp(RD_HEAD) waits for "\r\n\r\n", which echoed PINGPING never has.) */
+static int read_until(int fd, char *buf, size_t cap, int ms, const char *needle) {
+    size_t n = 0, nl = strlen(needle);
+    long deadline = now_ms() + ms;
+    buf[0] = 0;
+    for (;;) {
+        if (n >= nl && memmem(buf, n, needle, nl)) return (int)n;
+        long left = deadline - now_ms();
+        if (left <= 0 || n + 1 >= cap) return -1;
+        struct pollfd p = { fd, POLLIN, 0 };
+        int pr = poll(&p, 1, (int)(left > 250 ? 250 : left));
+        if (pr < 0) { if (errno == EINTR) continue; return -1; }
+        if (pr == 0) continue;
+        ssize_t r = recv(fd, buf + n, cap - 1 - n, 0);
+        if (r < 0) { if (errno == EINTR) continue; return (int)n; }
+        if (r == 0) return (int)n;
+        n += (size_t)r;
+        buf[n] = 0;
+    }
+}
+
 static int status_of(const char *buf, int n) {
     if (n < 12 || memcmp(buf, "HTTP/1.", 7) != 0) return 0;
     return atoi(buf + 9);
@@ -169,7 +222,7 @@ static int fd_count(void) {
 /* One request/response round trip. Returns bytes read or -1. */
 static int roundtrip(const char *req, size_t rlen, char *buf, size_t cap,
                      int ms, int mode, int *status, int *closed) {
-    int fd = tcp_connect(APP_PAC_PORT);
+    int fd = tcp_connect(g_pac_port);
     if (fd < 0) return -1;
     if (!rlen) rlen = strlen(req);
     if (rlen && send(fd, req, rlen, 0) < 0) { close(fd); return -1; }
@@ -222,26 +275,75 @@ static void on_alarm(int s) {
     _exit(1);
 }
 
+#ifndef _WIN32
+/* A reset TCP peer + write() is SIGPIPE. That is the 0.2.3 desktop vanish:
+ * launchd last terminating signal = Broken pipe: 13, no cleanup line in the
+ * circular log. The child sets SIG_DFL so the parent ignore cannot hide it. */
+static int child_write_closed(int protect) {
+    int sp[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sp) != 0) return 2;
+    if (protect) {
+#ifdef SO_NOSIGPIPE
+        int one = 1;
+        setsockopt(sp[0], SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
+    }
+    signal(SIGPIPE, SIG_DFL);
+    close(sp[1]);
+    char b = 'x';
+#ifdef MSG_NOSIGNAL
+    ssize_t w = protect ? send(sp[0], &b, 1, MSG_NOSIGNAL) : write(sp[0], &b, 1);
+#else
+    ssize_t w = write(sp[0], &b, 1);
+#endif
+    int e = errno;
+    close(sp[0]);
+    return (w < 0 && e == EPIPE) ? 0 : 3;
+}
+static int fork_write_closed(int protect) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) _exit(child_write_closed(protect));
+    int st = 0;
+    if (waitpid(pid, &st, 0) != pid) return -1;
+    if (WIFSIGNALED(st)) return 1000 + WTERMSIG(st);
+    if (WIFEXITED(st)) return WEXITSTATUS(st);
+    return -2;
+}
+#endif
+
+/* dane-08: one GET on the PAC door; returns HTTP status, body copied to out */
+static int gd_get(const char *path, char *out, size_t cap) {
+    int fd = tcp_connect(g_pac_port);
+    if (fd < 0) return -1;
+    char r[600];
+    snprintf(r, sizeof r, "GET %s HTTP/1.1\r\nHost: x\r\n\r\n", path);
+    send(fd, r, strlen(r), 0);
+    static char b[32768]; int closed = 0;
+    int m = read_resp(fd, b, sizeof b - 1, 5000, RD_EOF, &closed);
+    close(fd);
+    if (m <= 0) return -1;
+    b[m] = 0;
+    char *body = strstr(b, "\r\n\r\n");
+    snprintf(out, cap, "%s", body ? body + 4 : "");
+    return status_of(b, m);
+}
+
 int main(void) {
     signal(SIGPIPE, SIG_IGN);
     signal(SIGALRM, on_alarm);
     alarm(180);                     /* CI watchdog: a hang must fail, not wedge */
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    if (!port_is_free(APP_PAC_PORT)) {
-        printf("t_webproxy: SKIP — the PAC front door's fixed port 127.0.0.1:%d "
-               "is already in use (is the app running?)\n", APP_PAC_PORT);
-        return 0;
-    }
-    if (!port_is_free(APP_PROXY_PORT)) {
-        /* Somebody else (a running PepeNet) owns the DANE port. The front door
-         * still comes up on APP_PAC_PORT — the stub backend just moves to an
-         * ephemeral port, and the two splice tests, which need to see their own
-         * bytes echoed, are skipped rather than aimed at a foreign process. */
-        printf("t_webproxy: NOTE — 127.0.0.1:%d is owned by another process; the "
-               "stub :8443 backend moves to an ephemeral port and the CONNECT "
-               "splice/echo checks are skipped.\n", APP_PROXY_PORT);
-    }
+#ifndef _WIN32
+    SECTION("sigpipe");
+    CHECK(fork_write_closed(0) == 1000 + SIGPIPE,
+          "write to a reset peer is SIGPIPE (the desktop vanish)");
+    CHECK(fork_write_closed(1) == 0,
+          "SO_NOSIGPIPE/MSG_NOSIGNAL turns that write into EPIPE");
+#endif
+
+    /* no fixed-port preflight: every listener is ephemeral (see g_portmap) */
 
     int fd0 = fd_count();
 
@@ -251,7 +353,7 @@ int main(void) {
     }
     /* let pacd_main reach its poll() */
     for (int i = 0; i < 100; i++) {
-        int f = tcp_connect(APP_PAC_PORT);
+        int f = tcp_connect(g_pac_port);
         if (f >= 0) { close(f); break; }
         usleep(20000);
     }
@@ -301,7 +403,10 @@ int main(void) {
     }
     CHECK(!bad && brace == 0 && paren == 0 && (quote % 2) == 0,
           "PAC body is balanced JS (braces, parens, quotes)");
-    CHECK(strstr(pac, "Cache-Control: no-cache") != NULL, "PAC is no-cache");
+    { const char *cc = strstr(pac, "Cache-Control:");   /* "no-store, no-cache" since GreatDANE */
+      const char *eol = cc ? strstr(cc, "\r\n") : NULL;
+      const char *nc = cc ? strstr(cc, "no-cache") : NULL;
+      CHECK(cc && eol && nc && nc < eol, "PAC is no-cache"); }
     CHECK(memchr(body, 0, blen) == NULL, "PAC body has no embedded NUL");
 
     char refpac[8192];
@@ -348,8 +453,15 @@ int main(void) {
     int ncase = (int)(sizeof cases / sizeof cases[0]);
     pthread_t th[64];
     long t0 = now_ms();
-    for (int i = 0; i < ncase; i++) pthread_create(&th[i], NULL, case_thread, &cases[i]);
-    for (int i = 0; i < ncase; i++) pthread_join(th[i], NULL);
+    /* waves smaller than the front door's PAC_CONN_MAX (8): above the cap the
+     * proxy sheds a connection by closing it unanswered (by design), which made
+     * a random case read "closed, 0 bytes" instead of its 403 — a test race */
+    enum { WAVE = 6 };
+    for (int w = 0; w < ncase; w += WAVE) {
+        int e = w + WAVE < ncase ? w + WAVE : ncase;
+        for (int i = w; i < e; i++) pthread_create(&th[i], NULL, case_thread, &cases[i]);
+        for (int i = w; i < e; i++) pthread_join(th[i], NULL);
+    }
     printf("     (corpus of %d hostile requests ran concurrently in %ld ms)\n",
            ncase, now_ms() - t0);
 
@@ -386,7 +498,7 @@ int main(void) {
     /* the byte-at-a-time client: a valid request split across ~50 writes */
     {
         const char *req = "GET /proxy.pac HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: */*\r\n\r\n";
-        int fd = tcp_connect(APP_PAC_PORT);
+        int fd = tcp_connect(g_pac_port);
         CHECK(fd >= 0, "byte-at-a-time: connect");
         for (const char *p = req; fd >= 0 && *p; p++) {
             if (send(fd, p, 1, 0) != 1) break;
@@ -406,7 +518,7 @@ int main(void) {
         char big[16 * 1024 + 64];
         memcpy(big, "GET /", 5);
         memset(big + 5, 'A', sizeof big - 5);
-        int fd = tcp_connect(APP_PAC_PORT);
+        int fd = tcp_connect(g_pac_port);
         CHECK(fd >= 0, "16 KB request line: connect");
         long sent = 0;
         while (fd >= 0 && sent < (long)sizeof big) {
@@ -422,11 +534,10 @@ int main(void) {
     }
 
     /* the splice: CONNECT then bytes both ways through the stub 8443 backend */
-    if (g_backend_port != APP_PROXY_PORT) {
-        printf("skip the CONNECT splice/echo checks — 127.0.0.1:%d is a foreign process\n",
-               APP_PROXY_PORT);
-    } else {
-        int fd = tcp_connect(APP_PAC_PORT);
+    CHECK(g_backend_port > 0 && g_pac_port > 0,
+          "stub backend and PAC front door bound ephemeral ports");
+    {
+        int fd = tcp_connect(g_pac_port);
         CHECK(fd >= 0, "CONNECT splice: connect");
         const char *r = "CONNECT tunnel.pepe:443 HTTP/1.1\r\nHost: tunnel.pepe\r\n\r\n";
         send(fd, r, strlen(r), 0);
@@ -436,15 +547,15 @@ int main(void) {
         CHECK(m > 0 && strstr(b, "Connection established") != NULL, "CONNECT status text");
         send(fd, "PINGPING", 8, 0);
         char e[64] = {0};
-        int mm = read_resp(fd, e, sizeof e, 5000, RD_HEAD, &closed);
+        int mm = read_until(fd, e, sizeof e, 5000, "PINGPING");
         CHECK(mm >= 8 && memcmp(e, "PINGPING", 8) == 0,
               "bytes flow through the splice to the :8443 backend and back");
         close(fd);
     }
 
     /* pipelined residue: payload in the SAME write as the CONNECT head */
-    if (g_backend_port == APP_PROXY_PORT) {
-        int fd = tcp_connect(APP_PAC_PORT);
+    {
+        int fd = tcp_connect(g_pac_port);
         const char *r = "CONNECT pipe.pepe:443 HTTP/1.1\r\n\r\nRESIDUE!";
         send(fd, r, strlen(r), 0);
         char b[4096];
@@ -456,7 +567,7 @@ int main(void) {
         const char *after = memmem(b, (size_t)(m > 0 ? m : 0), "\r\n\r\n", 4);
         if (after && (int)(after + 4 - b) < m) have = 1;
         if (!have) {
-            int mm = read_resp(fd, e, sizeof e, 5000, RD_HEAD, &closed);
+            int mm = read_until(fd, e, sizeof e, 5000, "RESIDUE!");
             have = mm > 0 && memmem(e, (size_t)mm, "RESIDUE!", 8) != NULL;
         } else {
             have = memmem(b, (size_t)m, "RESIDUE!", 8) != NULL;
@@ -488,10 +599,10 @@ int main(void) {
           "  ...GET /etc/passwd serves nothing from disk",                         400 },
         { "GET /..%2f..%2fetc%2fpasswd HTTP/1.1\r\n\r\n",    "encoded traversal is refused",
           "  ...encoded traversal serves nothing from disk",                       400 },
-        { "GET /proxy.pac/../../etc/passwd HTTP/1.1\r\n\r\n","traversal under /proxy.pac answers 200",
-          "  ...and it is the PAC verbatim, never a disk file",                    200 },
-        { "GET /proxy.pac/x HTTP/1.1\r\n\r\n",               "GET /proxy.pac/x answers 200 (prefix match)",
-          "  ...and it is the PAC verbatim, never a disk file",                    200 },
+        { "GET /proxy.pac/../../etc/passwd HTTP/1.1\r\n\r\n","traversal under /proxy.pac is refused",
+          "  ...GET /proxy.pac is an exact path, not a prefix",                     400 },
+        { "GET /proxy.pac/x HTTP/1.1\r\n\r\n",               "GET /proxy.pac/x is refused (not a prefix)",
+          "  ...GET /proxy.pac is an exact path, not a prefix",                     400 },
     };
     for (size_t i = 0; i < sizeof paths / sizeof paths[0]; i++) {
         char b[8192];
@@ -530,7 +641,7 @@ int main(void) {
         /* connections that are aborted mid-head must not leak either */
         int before2 = fd_count();
         for (int i = 0; i < 200; i++) {
-            int fd = tcp_connect(APP_PAC_PORT);
+            int fd = tcp_connect(g_pac_port);
             if (fd < 0) continue;
             send(fd, "GET /pro", 8, 0);
             struct linger lg = { 1, 0 };            /* RST, not FIN */
@@ -547,19 +658,158 @@ int main(void) {
     SECTION("shutdown");
     webproxy_stop();
     usleep(300000);
-    CHECK(port_is_free(APP_PAC_PORT), "webproxy_stop releases 127.0.0.1:" APP_PAC_PORT_S);
+    CHECK(port_is_free(g_pac_port), "webproxy_stop releases the PAC front door port (ephemeral, was " APP_PAC_PORT_S ")");
     /* FAILS: webproxy_stop() (src/webproxy.c:375-392) joins g.th but never
      * close()s g.lfd, so the DANE listener socket stays bound and LISTENing and
      * its fd leaks. A restart therefore cannot rebind APP_PROXY_PORT
      * (proxy_listen sets SO_REUSEADDR only, which does not permit a second live
      * listener on the same addr:port). See j_webproxy's start/stop section. */
     CHECK(port_is_free(g_backend_port),
-          "webproxy_stop releases the DANE listener port (127.0.0.1:" APP_PROXY_PORT_S ")");
+          "webproxy_stop releases the DANE listener port (ephemeral, was " APP_PROXY_PORT_S ")");
 
     int fd1 = fd_count();
     printf("     open fds: %d at start, %d after stop\n", fd0, fd1);
     /* FAILS: same root cause — the unclosed g.lfd is a permanently leaked fd. */
     CHECK(fd1 <= fd0, "start+stop leaks no fd");
+
+    SECTION("dane-api passthrough: no root CA");
+    {
+        WebStatus ws;
+        webproxy_status(&ws);
+        int calls_normal = g_ca_ensure_calls;
+        CHECK(calls_normal == 1, "normal mode ensured the root exactly once");
+        CHECK(g_serve_null_root == 0, "normal mode never serves TLS without a root");
+
+        webproxy_set_passthrough(1);
+        CHECK(webproxy_start("/dev/null", "/dev/null") == 1, "passthrough start succeeds");
+        CHECK(g_ca_ensure_calls == calls_normal, "passthrough start never calls ca_root_ensure");
+        webproxy_status(&ws);
+        CHECK(ws.ca_ready == 0, "passthrough reports ca_ready 0");
+        int pp = 0, pc = 0, pf = 0;
+        webproxy_ports(&pp, &pc, &pf);
+        CHECK(pp > 0 && pc > 0, "passthrough still binds the proxy + PAC ports");
+        /* the TLS acceptor refuses (closes) instead of serving without a root */
+        int fd = tcp_connect(g_backend_port);
+        CHECK(fd >= 0, "passthrough TLS acceptor accepts the dial");
+        if (fd >= 0) {
+            send(fd, "PINGPING", 8, 0);
+            char b[64]; int closed = 0;
+            int m = read_resp(fd, b, sizeof b, 3000, RD_HEAD, &closed);
+            CHECK(m <= 0 && closed, "passthrough TLS acceptor closes without echo/serve");
+            close(fd);
+        }
+        usleep(300 * 1000);
+        CHECK(g_serve_null_root == 0, "passthrough never reaches proxy_serve_ctl with a NULL root");
+        /* the browser path is untouched: PAC + /gd/tlsa still answer */
+        int pfd = tcp_connect(g_pac_port);
+        if (pfd >= 0) {
+            const char *r = "GET /gd/tlsa?host=x.pepe HTTP/1.1\r\n\r\n";
+            send(pfd, r, strlen(r), 0);
+            char b[2048]; int closed = 0;
+            int m = read_resp(pfd, b, sizeof b, 5000, RD_EOF, &closed);
+            CHECK(m > 0 && status_of(b, m) == 200, "passthrough /gd/tlsa still answers 200");
+            close(pfd);
+        } else CHECK(0, "passthrough PAC connect");
+
+        SECTION("dane-08: /gd/name + /gd/owned");
+        {
+            char body[8192]; int st;
+            st = gd_get("/gd/name?n=gm", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"status\":\"ok\"") &&
+                  strstr(body, "\"owner\":\"1111111111111111111111111111111111111111\"") &&
+                  strstr(body, "\"state\":1"), "/gd/name owned name → ok + owner");
+            st = gd_get("/gd/name?n=GM" APP_DOT_TLD, body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"name\":\"gm\""), "/gd/name lowercases + strips own TLD");
+            st = gd_get("/gd/name?n=nobody", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"status\":\"unowned\""), "/gd/name unknown → unowned");
+            const char *bad[] = { "/gd/name?n=", "/gd/name?n=a_b", "/gd/name?n=a.b",
+                "/gd/name?n=%22x", "/gd/name?n=gm.other",
+                "/gd/name?n=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",   /* 33 */
+                "/gd/name?n=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            int allbad = 1;
+            for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+                st = gd_get(bad[i], body, sizeof body);
+                if (st != 400 || !strstr(body, "bad_name")) { allbad = 0; printf("     bad: %s → %d\n", bad[i], st); }
+            }
+            CHECK(allbad, "/gd/name rejects empty/charset/dot/foreign-TLD/over-32/over-long with 400");
+            st = gd_get("/gd/owned?h160=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "{\"name\":\"gm\",\"lease_expiry\":1234,\"state\":1}") &&
+                  !strstr(body, "bad") && strstr(body, "\"count\":1") &&
+                  strstr(body, "\"truncated\":false"), "/gd/owned lists names, drops non-canonical rows");
+            st = gd_get("/gd/owned?h160=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"count\":64") && strstr(body, "\"truncated\":true") &&
+                  strlen(body) < 4096, "/gd/owned caps at 64 names / 4 KiB and flags truncated");
+            int ob = 1;
+            const char *badh[] = { "/gd/owned?h160=", "/gd/owned?h160=abc",
+                "/gd/owned?h160=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+                "/gd/owned?h160=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+            for (size_t i = 0; i < sizeof badh / sizeof *badh; i++)
+                if (gd_get(badh[i], body, sizeof body) != 400) ob = 0;
+            CHECK(ob, "/gd/owned rejects short/long/non-hex h160 with 400");
+            CHECK(gd_get("/gd/name?x=gm", body, sizeof body) == 400, "/gd/name without n= → 400");
+            CHECK(g_db_opens == g_db_closes && g_db_opens >= 4, "every db open is closed");
+        }
+
+        SECTION("dane-09: /gd/names listing");
+        {
+            static char body[32768]; int st;
+            st = gd_get("/gd/names?prefix=", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"total\":251") && strstr(body, "\"offset\":0") &&
+                  strstr(body, "\"limit\":20") && strstr(body, "\"count\":20"),
+                  "empty prefix lists all names, default limit 20");
+            CHECK(gd_get("/gd/names", body, sizeof body) == 200 && strstr(body, "\"total\":251"),
+                  "bare /gd/names = empty prefix");
+            st = gd_get("/gd/names?prefix=n&offset=10&limit=3", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"total\":250") &&
+                  strstr(body, "{\"name\":\"n010\",\"owner_h160\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"") &&
+                  strstr(body, "{\"name\":\"n011\",\"owner_h160\":null") &&
+                  strstr(body, "n012") && !strstr(body, "n013") && strstr(body, "\"count\":3"),
+                  "prefix + offset + limit page, owner_h160 hex or null");
+            st = gd_get("/gd/names?limit=2&prefix=N1&offset=0", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"prefix\":\"n1\"") && strstr(body, "\"total\":100") &&
+                  strstr(body, "n100") && strstr(body, "n101"), "params any order, prefix lowercased");
+            st = gd_get("/gd/names?limit=100", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"limit\":100") && strlen(body) < 20480 &&
+                  strstr(body, "\"count\":100"), "limit 100 ok, under body cap");
+            st = gd_get("/gd/names?prefix=z", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"total\":1") && strstr(body, "\"count\":0") &&
+                  !strstr(body, "zz"), "non-canonical row dropped from page");
+            st = gd_get("/gd/names?prefix=n24&offset=999", body, sizeof body);
+            CHECK(st == 200 && strstr(body, "\"names\":[]") && strstr(body, "\"total\":10"),
+                  "offset past end → empty page, total kept");
+            const char *badq[][2] = {
+                {"/gd/names?limit=101","bad_limit"}, {"/gd/names?limit=0","bad_limit"},
+                {"/gd/names?limit=","bad_limit"}, {"/gd/names?limit=-1","bad_limit"},
+                {"/gd/names?limit=1x","bad_limit"}, {"/gd/names?offset=-1","bad_offset"},
+                {"/gd/names?offset=abc","bad_offset"}, {"/gd/names?offset=99999999999","bad_offset"},
+                {"/gd/names?prefix=a_b","bad_prefix"}, {"/gd/names?prefix=a.b","bad_prefix"},
+                {"/gd/names?prefix=%22","bad_prefix"},
+                {"/gd/names?prefix=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","bad_prefix"},
+                {"/gd/names?prefix=a&prefix=b","bad_prefix"} };
+            int allbad = 1;
+            for (size_t i = 0; i < sizeof badq / sizeof *badq; i++) {
+                st = gd_get(badq[i][0], body, sizeof body);
+                if (st != 400 || !strstr(body, badq[i][1])) { allbad = 0; printf("     bad: %s → %d\n", badq[i][0], st); }
+            }
+            CHECK(allbad, "/gd/names rejects bad limit/offset/prefix with 400 + reason");
+            CHECK(gd_get("/gd/name?n=gm", body, sizeof body) == 200 && strstr(body, "\"owner\""),
+                  "/gd/name still routed separately");
+            CHECK(g_db_opens == g_db_closes, "every db open is closed (names)");
+        }
+        webproxy_stop();
+        webproxy_set_passthrough(0);
+    }
+
+    SECTION("dane-08: endpoints are --dane-api only");
+    {
+        CHECK(webproxy_start("/dev/null", "/dev/null") == 1, "normal start");
+        char body[2048];
+        int st = gd_get("/gd/name?n=gm", body, sizeof body);
+        CHECK(st != 200 || !strstr(body, "\"owner\""), "/gd/name not served outside passthrough");
+        st = gd_get("/gd/names?prefix=", body, sizeof body);
+        CHECK(st != 200 || !strstr(body, "\"total\""), "/gd/names not served outside passthrough");
+        webproxy_stop();
+    }
 
     printf("\n%d checks, %s\n", g_checks, g_fail ? "SOME FAILED" : "all ok");
     printf(g_fail ? "t_webproxy: FAIL\n" : "t_webproxy: all ok\n");
@@ -578,6 +828,7 @@ const char *ca_tld(void)          { return APP_TLD; }
 void ca_set_dir(const char *dir)  { (void)dir; }
 void ca_set_name(const char *nm)  { (void)nm; }
 int  ca_root_ensure(X509 **cert, EVP_PKEY **key) {
+    g_ca_ensure_calls++;
     *cert = (X509 *)&g_fake_root;
     *key  = (EVP_PKEY *)&g_fake_key;
     return 1;
@@ -589,11 +840,46 @@ const char *ca_root_cert_path(void) { return "/dev/null"; }
 const char *ca_root_key_path(void)  { return "/dev/null"; }
 const char *ca_root_cn(void)        { return "stub"; }
 
+/* dane-08: fold-db stubs for /gd/name + /gd/owned. "gm" is owned by 11..11;
+ * aa..aa owns 2 names (one with a non-canonical byte the API must drop);
+ * bb..bb owns 70 (truncation at GD_OWNED_MAX). */
+static int g_fake_db;
+sqlite3 *idx_db_open_ro(const char *path) {
+    if (!path || !strcmp(path, "/nonexistent")) return NULL;
+    g_db_opens++; return (sqlite3 *)&g_fake_db;
+}
+void idx_db_close(sqlite3 *db) { if (db) g_db_closes++; }
+int idx_db_resolve(sqlite3 *db, const char *name, char owner_hex[41], char *state_out) {
+    (void)db;
+    if (strcmp(name, "gm")) return 0;
+    memset(owner_hex, '1', 40); owner_hex[40] = 0;
+    if (state_out) *state_out = 1;
+    return 1;
+}
+int idx_db_owned(sqlite3 *db, const char *h, void (*cb)(void *, const char *, int64_t, int), void *u) {
+    (void)db;
+    if (!strcmp(h, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")) {
+        cb(u, "gm", 1234, 1); cb(u, "bad\"name", 1, 1); return 2;
+    }
+    if (!strcmp(h, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")) {
+        char nm[16];
+        for (int i = 0; i < 70; i++) { snprintf(nm, sizeof nm, "n%02d", i); cb(u, nm, i, 1); }
+        return 70;
+    }
+    return 0;
+}
+
 Resolver *resolver_open(const char *suffix, const char *store, const char *idx) {
     (void)suffix; (void)store; (void)idx;
     return (Resolver *)&g_fake_rv;
 }
 void resolver_close(Resolver *r) { (void)r; }
+int resolver_lookup(const char *sni, OriginInfo *out, void *ud) {
+    (void)sni; (void)out; (void)ud; return RES_BAD_NAME;   /* GreatDANE additive gate */
+}
+/* webproxy_start_inst's instance paths (dnsnet.c, not linked here) */
+const char *dnsnet_store_path(void) { return ""; }
+const char *dnsnet_chain_path(void) { return ""; }
 int resolver_resolve(const char *sni, OriginInfo *out, void *ud) {
     (void)sni; (void)out; (void)ud; return 0;
 }
@@ -619,10 +905,8 @@ const char *platform_data_path(const char *name, char *out, size_t cap) {
     return out;
 }
 
-/* byte-for-byte tls/src/proxy.c:156 — the ONE deviation is the fallback at the
- * end, which only fires for APP_PROXY_PORT when a foreign process already owns
- * it (see the NOTE in main): the stub backend then takes an ephemeral port so
- * the front door under test still comes up. APP_PAC_PORT never falls back. */
+/* tls/src/proxy.c:156's (socket, SO_REUSEADDR, bind, listen 64) — but ALWAYS on
+ * port 0. The logical port webproxy.c asked for is recorded in g_portmap. */
 static int bind_listen(const char *ip, int port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
@@ -641,28 +925,36 @@ static int bind_listen(const char *ip, int port) {
     return fd;
 }
 
-static int g_backend_pinned;
-
 int proxy_listen(const char *ip, int port) {
-    int want = (port == APP_PROXY_PORT) ? g_backend_port : port;
-    int fd = bind_listen(ip, want);
-    if (fd >= 0) {
-        if (port == APP_PROXY_PORT) g_backend_pinned = 1;
-        return fd;
-    }
-    /* Only the very FIRST attempt at APP_PROXY_PORT may relocate — once the
-     * backend port is pinned this behaves exactly like tls/src/proxy.c, so a
-     * failure to rebind (i.e. a port the app never released) is reported, not
-     * papered over. */
-    if (port != APP_PROXY_PORT || g_backend_pinned) return -1;
-    fd = bind_listen(ip, 0);
+    int fd = bind_listen(ip, 0);
     if (fd < 0) return -1;
     struct sockaddr_in sa;
     socklen_t sl = sizeof sa;
-    if (getsockname(fd, (struct sockaddr *)&sa, &sl) == 0)
-        g_backend_port = ntohs(sa.sin_port);
-    g_backend_pinned = 1;
+    if (getsockname(fd, (struct sockaddr *)&sa, &sl) != 0) { close(fd); return -1; }
+    int actual = ntohs(sa.sin_port), i;
+    for (i = 0; i < g_nport && g_portmap[i].logical != port; i++) ;
+    if (i == g_nport) { if (g_nport == PORTMAP_MAX) { close(fd); return -1; } g_nport++; }
+    g_portmap[i].logical = port;
+    g_portmap[i].actual  = actual;
     return fd;
+}
+
+/* webproxy.c's connect() (via -Dconnect=t_wp_connect): a loopback dial to a
+ * logical port is steered to its ephemeral twin; a dial to an app port that
+ * this suite never bound is refused rather than reaching a real process. */
+int t_wp_connect(int fd, const struct sockaddr *a, socklen_t l) {
+    if (a && a->sa_family == AF_INET && l >= (socklen_t)sizeof(struct sockaddr_in)) {
+        struct sockaddr_in sa;
+        memcpy(&sa, a, sizeof sa);
+        int lp = ntohs(sa.sin_port), ap = port_actual(lp);
+        if (ap > 0) {
+            sa.sin_port = htons((uint16_t)ap);
+            return connect(fd, (struct sockaddr *)&sa, sizeof sa);
+        }
+        if (lp == APP_PROXY_PORT || lp == APP_PAC_PORT || lp == APP_PROXY_PF_PORT ||
+            lp == APP_DNS_PORT || lp == 443) { errno = ECONNREFUSED; return -1; }
+    }
+    return connect(fd, a, l);
 }
 
 static void *echo_thread(void *a) {
@@ -687,6 +979,7 @@ int proxy_serve_ctl(int lfd, X509 *root, EVP_PKEY *rootkey,
                     proxy_resolver resolve, void *ud,
                     const ProxyEvents *ev, volatile int *stop) {
     (void)root; (void)rootkey; (void)resolve; (void)ud; (void)ev;
+    if (!root || !rootkey) __sync_fetch_and_add(&g_serve_null_root, 1);
     for (;;) {
         struct pollfd p = { lfd, POLLIN, 0 };
         if (stop && *stop) break;
@@ -705,4 +998,23 @@ int proxy_serve(int lfd, X509 *r, EVP_PKEY *k, proxy_resolver f, void *ud) {
 int proxy_run(const char *ip, int port, X509 *r, EVP_PKEY *k,
               proxy_resolver f, void *ud) {
     (void)ip; (void)port; (void)r; (void)k; (void)f; (void)ud; return 1;
+}
+
+/* dane-09 stub: n000..n249 + a non-canonical "zz\"x" last; n000..n249 (even → owner aa…aa, odd → unowned),
+ * honouring prefix/offset/limit like the real range query. */
+int64_t idx_db_names(sqlite3 *db, const char *prefix, int64_t offset, int limit,
+                     void (*cb)(void *u, const char *name, const uint8_t *owner,
+                                int64_t lease_expiry, int st, uint64_t price), void *u) {
+    (void)db;
+    static uint8_t aa[20]; memset(aa, 0xaa, 20);
+    char nm[16]; int64_t total = 0, emitted = 0;
+    size_t pl = strlen(prefix);
+    for (int i = 0; i <= 250; i++) {
+        if (i == 250) snprintf(nm, sizeof nm, "zz\"x"); else snprintf(nm, sizeof nm, "n%03d", i);
+        if (strncmp(nm, prefix, pl)) continue;
+        if (total++ < offset || emitted >= limit) continue;
+        emitted++;
+        cb(u, nm, (i < 250 && i % 2 == 0) ? aa : NULL, 5000 + i, 1, 0);
+    }
+    return total;
 }

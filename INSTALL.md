@@ -2,6 +2,7 @@
 
 The GUI client: wallet, names, Discover, and the dns/tls stack **in-process**.
 A stock browser padlock still needs a one-time **Enable web access**.
+P2P + TLS threat model: [`docs/SECURITY.md`](docs/SECURITY.md).
 
 Headless POSIX daemons (`dnsd` + `pepenet-tls` as boot services):  
 [pepenet-tls/INSTALL.md](https://github.com/PepeNetWeb/pepenet-tls/blob/main/INSTALL.md).

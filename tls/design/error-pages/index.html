@@ -1,0 +1,62 @@
+<!doctype html><html lang=en><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>pepenet-tls — fail-closed pages</title>
+<style>
+:root{--bg:#f7f8f7;--fg:#12160f;--mut:#5c6659;--card:#fff;--line:#e2e6e0;--accent:#43a75e}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1210;--fg:#e8ece6;--mut:#98a394;--card:#171b18;--line:#252b26}}
+*{box-sizing:border-box}
+body{margin:0;padding:40px 24px;background:var(--bg);color:var(--fg);
+font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+main{max-width:46rem;margin:0 auto}
+h1{font-size:24px;letter-spacing:-.02em;margin:0 0 6px}
+.sub{color:var(--mut);margin:0 0 28px}
+a.row{display:block;text-decoration:none;color:inherit;background:var(--card);
+border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:12px}
+a.row:hover{border-color:var(--accent)}
+.c{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;
+color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 9px}
+.t{font-weight:600;margin:8px 0 3px}
+.d{color:var(--mut);font-size:13.5px}
+.note{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);
+color:var(--mut);font-size:13px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+</style>
+<body><main>
+<h1>pepenet-tls — fail-closed pages</h1>
+<p class=sub>Every page the DANE proxy can serve in place of a site. Captured from
+the real proxy over TLS, not mocked up. Open any of them directly; they are
+self-contained (no external CSS, fonts or images). Each page carries a chain-sync
+strip (NOT SYNCED / CATCHING UP / AT TIP) so a name that is not in this node's
+fold yet is not mistaken for a name that does not exist.</p>
+
+<a class=row href="502-key-mismatch.html">
+  <span class=c>ERROR 502</span>
+  <div class=t>Origin key does not match the chain</div>
+  <div class=d>The security case. The origin answered, but presented a key its owner
+  never pinned. Expand <b>Diagnostics</b> to see the pinned TLSA and the SPKI the
+  origin actually served — the two hashes differ, which is the whole point.</div>
+</a>
+
+<a class=row href="504-origin-unreachable.html">
+  <span class=c>ERROR 504</span>
+  <div class=t>Origin unreachable</div>
+  <div class=d>Name resolved, nothing answered at the published address. Site
+  offline, or a stale A record.</div>
+</a>
+
+<a class=row href="404-no-such-name.html">
+  <span class=c>ERROR 404</span>
+  <div class=t>No such name on the chain</div>
+  <div class=d>Nothing published for this name: never registered, lease lapsed, or
+  no records added yet — or this node is still catching up and the name sits
+  above its fold. No origin was dialled.</div>
+</a>
+
+<p class=note>
+Regenerate after editing <code>serve_error()</code> in <code>src/proxy.c</code>:
+<code>PEPENET_DUMP_ERROR_PAGES=1 make test</code> (the proxy_test sync-strip
+case writes 404 and 502 here from the live HTML). Toggle your OS between
+light and dark appearance to check both themes — the pages follow
+<code>prefers-color-scheme</code>.
+</p>
+</main>

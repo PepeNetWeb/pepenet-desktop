@@ -46,6 +46,15 @@ void dnsnet_add_peer(const char *hostport);
 int  dnsnet_start(void);        // spin both threads (idempotent)
 void dnsnet_stop(void);         // stop + join both
 
+// Instance start. dnsnet_use_chain_db() must name the chain db first (the
+// signature stays (inst) — the path is not an appconf field). Returns the
+// one process context, or NULL if dns is already running or no db was set.
+// The desktop keeps dnsnet_boot + dnsnet_start.
+typedef struct Dnsnet Dnsnet;
+struct AppInstance;
+void dnsnet_use_chain_db(const char *db);
+Dnsnet *dnsnet_start_inst(const struct AppInstance *inst);
+
 void dnsnet_status(DnsStatus *out);
 int  dnsnet_test_view(void);    // offline harness (PEPENET_DNS_TEST) active?
 

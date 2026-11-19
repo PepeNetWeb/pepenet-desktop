@@ -1,0 +1,16 @@
+indexerd
+indexerd.san
+build/
+*.db
+*.db-wal
+*.db-shm
+*.dSYM/
+.DS_Store
+test_db
+test_snapshot
+test_sync
+test_codec
+test_serve
+test_net_policy
+test_rollback
+indexerd-stalltest

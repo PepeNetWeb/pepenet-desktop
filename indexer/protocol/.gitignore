@@ -1,0 +1,15 @@
+# build artifacts
+impls/c/sm
+impls/c/*.o
+impls/py/__pycache__/
+impls/ts/sm.js
+impls/ts/node_modules/
+impls/rust/target/
+impls/go/sm
+impls/csharp/bin/
+impls/csharp/obj/
+impls/java/*.class
+impls/c/sm.san
+
+# macOS
+.DS_Store

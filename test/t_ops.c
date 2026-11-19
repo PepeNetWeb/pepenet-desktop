@@ -172,11 +172,17 @@ static const uint8_t H160A[20] = {
     0xaa,0xab,0xac,0xad,0xae,0xaf,0xb0,0xb1,0xb2,0xb3,
 };
 
+/* pep profile. Tests may name the bytes; production C may not. */
+static const uint8_t TOPS_PN[2] = { 0x50, 0x4E };
+static size_t enc_pn(const SmAction *a, uint8_t *out) {
+    return sm_encode_action(a, TOPS_PN, out);
+}
+
 /* decode a payload through the REAL consensus decoder */
 static int dec(const uint8_t *p, size_t n, SmAction *a) {
     SmCarrier car;
     memset(&car, 0, sizeof car);
-    sm_decode_payload(p, n, 0, &car);
+    sm_decode_payload(p, n, 0, TOPS_PN, &car);
     if (car.kind != SM_CAR_ACTION) return 0;
     *a = car.act;
     return 1;
@@ -327,7 +333,7 @@ int main(void) {
               "every action carries the 0xFF 'P' 'N' magic");
         memset(&a, 0, sizeof a);
         a.op = SM_OP_RENEW;
-        CHECK(sm_encode_action(&a, want) == gn && memcmp(want, got, gn) == 0,
+        CHECK(enc_pn(&a, want) == gn && memcmp(want, got, gn) == 0,
               "canonical encoder agrees on bare RENEW");
         CHECK(dec(got, gn, &a) && a.op == SM_OP_RENEW && !a.has_anchor && a.flags_len == 0,
               "consensus decoder reads it back as renew-ALL");
@@ -345,7 +351,7 @@ int main(void) {
         };
         CHECK(bytes_eq("COMMIT", got, gn, w, sizeof w), "COMMIT == header + commitment[32], 36 bytes");
         memset(&a, 0, sizeof a); a.op = SM_OP_COMMIT; memcpy(a.commitment, cm, 32);
-        CHECK(sm_encode_action(&a, want) == 36 && memcmp(want, got, 36) == 0, "canonical encoder agrees on COMMIT");
+        CHECK(enc_pn(&a, want) == 36 && memcmp(want, got, 36) == 0, "canonical encoder agrees on COMMIT");
         CHECK(dec(got, gn, &a) && a.op == SM_OP_COMMIT && memcmp(a.commitment, cm, 32) == 0,
               "decoder recovers the commitment");
     }
@@ -363,7 +369,7 @@ int main(void) {
         memset(&a, 0, sizeof a);
         a.op = SM_OP_CLAIM; memcpy(a.salt, SALT32, 32);
         memcpy(a.name, "pepe", 4); a.name_len = 4;
-        CHECK(sm_encode_action(&a, want) == 40 && memcmp(want, got, 40) == 0, "canonical encoder agrees on CLAIM");
+        CHECK(enc_pn(&a, want) == 40 && memcmp(want, got, 40) == 0, "canonical encoder agrees on CLAIM");
         CHECK(dec(got, gn, &a) && a.op == SM_OP_CLAIM && a.name_len == 4 &&
               strcmp(a.name, "pepe") == 0 && memcmp(a.salt, SALT32, 32) == 0,
               "decoder recovers salt + name (name length is implied by the payload length)");
@@ -380,7 +386,7 @@ int main(void) {
         memset(&a, 0, sizeof a);
         a.op = SM_OP_RENEW; a.has_anchor = 1; a.anchor = 0x0102030405ULL;
         a.flags[0] = 0x05; a.flags_len = 1;
-        CHECK(sm_encode_action(&a, want) == 10 && memcmp(want, got, 10) == 0, "canonical encoder agrees");
+        CHECK(enc_pn(&a, want) == 10 && memcmp(want, got, 10) == 0, "canonical encoder agrees");
         CHECK(dec(got, gn, &a) && a.has_anchor && a.anchor == 0x0102030405ULL &&
               a.flags_len == 1 && a.flags[0] == 0x05,
               "decoder recovers the anchor little-endian and the bitmap byte");
@@ -402,7 +408,7 @@ int main(void) {
         CHECK(bytes_eq("TRANSFER-all", got, gn, w, sizeof w),
               "bare TRANSFER == header + target hash160, 24 bytes");
         memset(&a, 0, sizeof a); a.op = SM_OP_TRANSFER; memcpy(a.addr, H160A, 20);
-        CHECK(sm_encode_action(&a, want) == 24 && memcmp(want, got, 24) == 0, "canonical encoder agrees");
+        CHECK(enc_pn(&a, want) == 24 && memcmp(want, got, 24) == 0, "canonical encoder agrees");
         CHECK(dec(got, gn, &a) && !a.has_anchor && memcmp(a.addr, H160A, 20) == 0,
               "decoder reads it as transfer-ALL (no anchor)");
 
@@ -419,7 +425,7 @@ int main(void) {
         memset(&a, 0, sizeof a);
         a.op = SM_OP_TRANSFER; memcpy(a.addr, H160A, 20);
         a.has_anchor = 1; a.anchor = 0x42; a.flags[0] = 0x80; a.flags[1] = 0x01; a.flags_len = 2;
-        CHECK(sm_encode_action(&a, want) == 31 && memcmp(want, got, 31) == 0, "canonical encoder agrees");
+        CHECK(enc_pn(&a, want) == 31 && memcmp(want, got, 31) == 0, "canonical encoder agrees");
         CHECK(dec(got, gn, &a) && a.has_anchor && a.anchor == 0x42 && a.flags_len == 2 &&
               a.flags[0] == 0x80 && a.flags[1] == 0x01 && memcmp(a.addr, H160A, 20) == 0,
               "decoder recovers target, anchor and bitmap");
@@ -438,7 +444,7 @@ int main(void) {
         memset(&a, 0, sizeof a);
         a.op = SM_OP_SELL; a.price = 200000000ULL; a.window = 18000U;
         memcpy(a.name, "shibe", 5); a.name_len = 5;
-        CHECK(sm_encode_action(&a, want) == 21 && memcmp(want, got, 21) == 0, "canonical encoder agrees");
+        CHECK(enc_pn(&a, want) == 21 && memcmp(want, got, 21) == 0, "canonical encoder agrees");
         CHECK(dec(got, gn, &a) && a.price == 200000000ULL && a.window == 18000U &&
               strcmp(a.name, "shibe") == 0, "decoder recovers price, window and name");
         /* window 0 means "the default 5 h RESERVE_WINDOW" — it is a real zero */
@@ -466,7 +472,7 @@ int main(void) {
             CHECK(bytes_eq(t[i].label, got, gn, w, sizeof w), nm);
             memset(&a, 0, sizeof a);
             a.op = t[i].op; memcpy(a.name, "doge", 4); a.name_len = 4;
-            CHECK(sm_encode_action(&a, want) == 8 && memcmp(want, got, 8) == 0,
+            CHECK(enc_pn(&a, want) == 8 && memcmp(want, got, 8) == 0,
                   "canonical encoder agrees");
             CHECK(dec(got, gn, &a) && a.op == t[i].op && strcmp(a.name, "doge") == 0,
                   "decoder recovers the name");
@@ -481,7 +487,7 @@ int main(void) {
         CHECK(bytes_eq("RELEASE", got, gn, w, sizeof w), "RELEASE == header + anchor LE5 + flags, 10 bytes");
         memset(&a, 0, sizeof a);
         a.op = SM_OP_RELEASE; a.has_anchor = 1; a.anchor = 900000; a.flags[0] = 1; a.flags_len = 1;
-        CHECK(sm_encode_action(&a, want) == 10 && memcmp(want, got, 10) == 0, "canonical encoder agrees");
+        CHECK(enc_pn(&a, want) == 10 && memcmp(want, got, 10) == 0, "canonical encoder agrees");
         CHECK(dec(got, gn, &a) && a.has_anchor && a.anchor == 900000 && a.flags_len == 1,
               "decoder recovers the release bitmap");
         CHECK(dec((const uint8_t[]){0xFF,0x50,0x4E,0x0A, 0,0,0,0,0}, 9, &a) == 0,
@@ -502,7 +508,7 @@ int main(void) {
         memset(&a, 0, sizeof a);
         a.op = SM_OP_SELL_TO; a.price = 500000000ULL; memcpy(a.addr, H160A, 20);
         memcpy(a.name, "pepe", 4); a.name_len = 4;
-        CHECK(sm_encode_action(&a, want) == 36 && memcmp(want, got, 36) == 0, "canonical encoder agrees");
+        CHECK(enc_pn(&a, want) == 36 && memcmp(want, got, 36) == 0, "canonical encoder agrees");
         CHECK(dec(got, gn, &a) && a.price == 500000000ULL && memcmp(a.addr, H160A, 20) == 0 &&
               strcmp(a.name, "pepe") == 0, "decoder recovers price, buyer and name");
     }
@@ -511,28 +517,28 @@ int main(void) {
     {
         memset(&a, 0, sizeof a);
         a.op = SM_OP_RENEW_NAME; memcpy(a.name, "pepe", 4); a.name_len = 4;
-        gn = sm_encode_action(&a, got);
+        gn = enc_pn(&a, got);
         CHECK(gn == 8 && got[3] == 0x01 && memcmp(got + 4, "pepe", 4) == 0,
               "RENEW_NAME == header + bare name bytes");
         memset(&a, 0, sizeof a);
         a.op = SM_OP_TRANSFER_NAME; memcpy(a.addr, H160A, 20);
         memcpy(a.name, "pepe", 4); a.name_len = 4;
-        gn = sm_encode_action(&a, got);
+        gn = enc_pn(&a, got);
         CHECK(gn == 28 && got[3] == 0x02 && memcmp(got + 4, H160A, 20) == 0 &&
               memcmp(got + 24, "pepe", 4) == 0,
               "TRANSFER_NAME == header + target(20) + name");
         memset(&a, 0, sizeof a);
         a.op = SM_OP_RELEASE_NAME; memcpy(a.name, "pepe", 4); a.name_len = 4;
-        gn = sm_encode_action(&a, got);
+        gn = enc_pn(&a, got);
         CHECK(gn == 8 && got[3] == 0x0B, "RELEASE_NAME == header + bare name bytes");
         memset(&a, 0, sizeof a);
         a.op = SM_OP_AS; a.as_index = 3;
-        gn = sm_encode_action(&a, got);
+        gn = enc_pn(&a, got);
         CHECK(gn == 5 && got[3] == 0x0E && got[4] == 3, "AS == header + one index byte");
         memset(&a, 0, sizeof a);
         a.op = SM_OP_TRADE; a.idx_a = 0; a.idx_b = 1;
         memcpy(a.name, "aa", 2); a.name_len = 2; memcpy(a.name_b, "bb", 2); a.name_b_len = 2;
-        gn = sm_encode_action(&a, got);
+        gn = enc_pn(&a, got);
         static const uint8_t wt[11] = { 0xFF,0x50,0x4E,0x0F, 0x00,0x01, 'a','a', 0x2C, 'b','b' };
         CHECK(bytes_eq("TRADE", got, gn, wt, sizeof wt), "TRADE == header + idxA + idxB + 'a,b'");
     }
@@ -558,7 +564,7 @@ int main(void) {
          * a name this long; see the buffer section below) */
         memset(&a, 0, sizeof a);
         a.op = SM_OP_RESERVE; memcpy(a.name, n32, 32); a.name_len = 32;
-        gn = sm_encode_action(&a, got);
+        gn = enc_pn(&a, got);
         CHECK(gn == 36 && dec(got, gn, &a) && a.name_len == 32, "a 32-byte RESERVE name decodes");
         uint8_t over[80];
         memcpy(over, got, gn); over[gn] = 'a';
@@ -570,9 +576,9 @@ int main(void) {
 
         /* the encoder refuses out-of-range name lengths rather than truncating */
         memset(&a, 0, sizeof a); a.op = SM_OP_RESERVE; a.name_len = 0;
-        CHECK(sm_encode_action(&a, got) == 0, "canonical encoder refuses a zero-length name");
+        CHECK(enc_pn(&a, got) == 0, "canonical encoder refuses a zero-length name");
         a.name_len = 33;
-        CHECK(sm_encode_action(&a, got) == 0, "canonical encoder refuses a 33-byte name");
+        CHECK(enc_pn(&a, got) == 0, "canonical encoder refuses a 33-byte name");
     }
 
     printf("-- the desktop's carrier buffers vs. the 32-byte consensus bound --\n");
@@ -642,11 +648,11 @@ int main(void) {
               "a 52-byte transfer bitmap is consensus-VALID (§6; relay is the gate)");
         memset(&a, 0, sizeof a);
         a.op = SM_OP_TRANSFER; a.has_anchor = 1; a.flags_len = SM_FLAGS_XFER_MAX + 1;
-        CHECK(sm_encode_action(&a, got) == 0, "canonical encoder refuses flags past the §6 transfer cap");
+        CHECK(enc_pn(&a, got) == 0, "canonical encoder refuses flags past the §6 transfer cap");
         a.op = SM_OP_RELEASE; a.flags_len = SM_FLAGS_MAX + 1;
-        CHECK(sm_encode_action(&a, got) == 0, "canonical encoder refuses flags past the §6 release cap");
+        CHECK(enc_pn(&a, got) == 0, "canonical encoder refuses flags past the §6 release cap");
         a.flags_len = 0;
-        CHECK(sm_encode_action(&a, got) == 0, "canonical encoder refuses an empty release bitmap");
+        CHECK(enc_pn(&a, got) == 0, "canonical encoder refuses an empty release bitmap");
 
         /* every op's worst case still relays (built canonically: a 32-byte
          * name overflows wallet.c's own carrier locals, see above) */
@@ -654,11 +660,11 @@ int main(void) {
         size_t worst[7];
         memset(&a, 0, sizeof a);
         a.op = SM_OP_CLAIM; memcpy(a.name, n32, 32); a.name_len = 32;
-        worst[0] = sm_encode_action(&a, got);
+        worst[0] = enc_pn(&a, got);
         a.op = SM_OP_SELL; a.price = ~0ULL; a.window = ~0U;
-        worst[1] = sm_encode_action(&a, got);
+        worst[1] = enc_pn(&a, got);
         a.op = SM_OP_SELL_TO; memcpy(a.addr, H160A, 20);
-        worst[2] = sm_encode_action(&a, got);
+        worst[2] = enc_pn(&a, got);
         worst[3] = wc_renew_sel(got, ~0LL, flags, 71);
         worst[4] = wc_release(got, ~0LL, flags, 71);
         worst[5] = wc_transfer_sel(got, H160A, ~0LL, flags, 51);
@@ -686,10 +692,10 @@ int main(void) {
         wc_name_only(box.buf, SM_OP_PAY, n20);
         memset(&a, 0, sizeof a);
         a.op = SM_OP_CLAIM; memcpy(a.name, n32, 32); a.name_len = 32;
-        sm_encode_action(&a, box.buf);                     /* the 68-byte worst case */
+        enc_pn(&a, box.buf);                     /* the 68-byte worst case */
         a.op = SM_OP_RELEASE; a.has_anchor = 1; a.anchor = ~0ULL >> 24;
         memcpy(a.flags, flags, 71); a.flags_len = 71;
-        sm_encode_action(&a, box.buf);                     /* the 80-byte worst case */
+        enc_pn(&a, box.buf);                     /* the 80-byte worst case */
         int intact = 1;
         for (unsigned i = 0; i < sizeof box.canary; i++) if (box.canary[i] != 0x5A) intact = 0;
         CHECK(intact, "the 32-byte canary past an 80-byte carrier is untouched by every builder");
@@ -795,7 +801,7 @@ int main(void) {
             }
 
             static uint8_t buf[SM_CARRIER_MAX];
-            size_t n = sm_encode_action(&in, buf);
+            size_t n = enc_pn(&in, buf);
             if (n == 0) { enc_fail++; continue; }
             if (n > SM_CARRIER_MAX) { over80++; continue; }
             SmAction out;
@@ -854,22 +860,22 @@ int main(void) {
          * at the full consensus flag budget is exactly the 9,996-byte carrier. */
         memset(&a, 0, sizeof a);
         a.op = SM_OP_RENEW; a.has_anchor = 1; a.flags_len = SM_FLAGS_MAX;
-        CHECK(sm_encode_action(&a, got) == SM_CARRIER_MAX,
+        CHECK(enc_pn(&a, got) == SM_CARRIER_MAX,
               "RENEW at SM_FLAGS_MAX encodes to exactly SM_CARRIER_MAX (9,996) bytes");
         a.flags_len = SM_FLAGS_MAX + 1;
-        CHECK(sm_encode_action(&a, got) == 0, "flags past the consensus cap refuse to encode");
+        CHECK(enc_pn(&a, got) == 0, "flags past the consensus cap refuse to encode");
     }
 
     printf("-- bare UTF-8 is never an action (names-only demux) --\n");
     {
         SmCarrier car;
         const uint8_t hi[] = { 'h','e','l','l','o' };
-        sm_decode_payload(hi, 5, 100, &car);
+        sm_decode_payload(hi, 5, 100, TOPS_PN, &car);
         CHECK(car.kind == SM_CAR_IGNORE, "burn-bearing UTF-8 is IGNORED (posts are gone)");
-        sm_decode_payload(hi, 5, 0, &car);
+        sm_decode_payload(hi, 5, 0, TOPS_PN, &car);
         CHECK(car.kind == SM_CAR_IGNORE, "the same bytes with no burn are IGNORED");
         const uint8_t bad[] = { 0xFF, 0x50, 0x4E, 0x04, 'x' };
-        sm_decode_payload(bad, 5, 100, &car);
+        sm_decode_payload(bad, 5, 100, TOPS_PN, &car);
         CHECK(car.kind == SM_CAR_IGNORE, "a MALFORMED action is IGNORED, never half-parsed");
     }
 

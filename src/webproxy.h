@@ -33,7 +33,21 @@ typedef struct {
 // 0 error.
 int  webproxy_start(const char *store_path, const char *chain_db);
 void webproxy_stop(void);
+
+// Instance start. Store and chain paths come from the running dnsnet (one
+// context per process). webproxy_set_combined(1) before start makes the PAC
+// list every instance suffix and the CONNECT door splice by suffix. Returns
+// NULL if the proxy is already up. The desktop keeps webproxy_start.
+typedef struct Webproxy Webproxy;
+struct AppInstance;
+struct Dnsnet;
+Webproxy *webproxy_start_inst(const struct AppInstance *inst, struct Dnsnet *dns);
+void webproxy_set_combined(int on);
+/* GreatDANE M3, opt-in: CONNECT splices raw TCP to the chain origin (no TLS
+ * termination) and the PAC port serves GET /gd/tlsa?host=NAME as JSON. */
+void webproxy_set_passthrough(int on);
 void webproxy_status(WebStatus *out);
+void webproxy_ports(int *proxy, int *pac, int *pf);  // actual bound ports
 
 // ── origin certificate (tls sscert) — the OTHER half of DANE: the self-signed
 //    cert a site's server serves, whose SPKI hash is exactly what the zone's

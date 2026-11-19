@@ -671,6 +671,12 @@ Resolver *resolver_open(const char *suffix, const char *store, const char *idx) 
     return (Resolver *)&g_fake_rv;
 }
 void resolver_close(Resolver *r) { (void)r; }
+int resolver_lookup(const char *sni, OriginInfo *out, void *ud) {
+    (void)sni; (void)out; (void)ud; return RES_BAD_NAME;   /* GreatDANE additive gate */
+}
+/* webproxy_start_inst's instance paths (dnsnet.c, not linked here) */
+const char *dnsnet_store_path(void) { return ""; }
+const char *dnsnet_chain_path(void) { return ""; }
 int resolver_resolve(const char *sni, OriginInfo *out, void *ud) {
     (void)sni; (void)out; (void)ud; return 0;
 }

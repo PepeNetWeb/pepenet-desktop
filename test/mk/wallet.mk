@@ -24,18 +24,18 @@ WLT_SM  := $(filter-out $(SM)/main.c $(SM)/secp256k1.c,$(wildcard $(SM)/*.c))
 TESTS += t_bip39 t_hdwallet t_wallet t_fee
 
 t_bip39: t_bip39.c $(SRC)/bip39.c $(SRC)/bip39_wordlist.c $(SM)/sha256.c
-	$(CC) $(CFLAGS) $(INC) $(WLT_SSL_INC) -o $@ $^ $(LDFLAGS) $(WLT_SSL_LIB)
+	$(CC) $(CFLAGS) $(INC) $(WLT_SSL_INC) -o $@ $^ $(LDFLAGS) $(WLT_SSL_LIB) $(EXTRA_LIBS)
 
 t_hdwallet: t_hdwallet.c $(SRC)/hdwallet.c $(SECPLIB)
 	$(CC) $(CFLAGS) $(INC) $(WLT_SSL_INC) -o $@ t_hdwallet.c $(SRC)/hdwallet.c \
-	  $(LDFLAGS) $(SECPLIB) $(WLT_SSL_LIB)
+	  $(LDFLAGS) $(SECPLIB) $(WLT_SSL_LIB) $(EXTRA_LIBS)
 
 t_fee: t_fee.c $(SRC)/fee.c
-	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LDFLAGS) $(EXTRA_LIBS)
 
 t_wallet: t_wallet.c $(SRC)/bip39.c $(SRC)/bip39_wordlist.c $(SRC)/hdwallet.c \
           $(WLT_IDX) $(WLT_SM) $(SHIM) $(SECPLIB)
 	$(CC) $(CFLAGS) $(INC) $(WLT_SSL_INC) -o $@ \
 	  t_wallet.c $(SRC)/bip39.c $(SRC)/bip39_wordlist.c $(SRC)/hdwallet.c \
 	  $(WLT_IDX) $(WLT_SM) $(SHIM) \
-	  $(LDFLAGS) $(SECPLIB) -lsqlite3 $(WLT_SSL_LIB)
+	  $(LDFLAGS) $(SECPLIB) $(SQLITE_LIBS) $(WLT_SSL_LIB) $(EXTRA_LIBS)

@@ -38,6 +38,24 @@
 #include <poll.h>
 #include <time.h>
 
+/* Carrier prefix from the bound coin's row. Default is APP_COIN, so the
+ * desktop and its selftest keep the pep bytes without a literal here. */
+static const char *wl_coin = APP_COIN;
+
+void wallet_bind_coin(const char *coin) {
+    wl_coin = (coin && coin[0]) ? coin : APP_COIN;
+}
+
+static void wl_magic(uint8_t out[2]) {
+    if (!idx_coin_onchain_magic(wl_coin, out)) { out[0] = out[1] = 0; }
+}
+
+static void wl_prefix(uint8_t *p, uint8_t op) {
+    uint8_t m[2];
+    wl_magic(m);
+    p[0] = 0xFF; p[1] = m[0]; p[2] = m[1]; p[3] = op;
+}
+
 // ══════════════════════ 1. identity: keys / HD / recovery phrase ══════════════
 DeskWallet WLT;
 
@@ -464,7 +482,8 @@ static void act_verify_tx_cb(void *u, const IdxTx *tx, uint32_t txindex) {
         const uint8_t *pd; size_t pdn;
         if (!idx_op_return_payload(tx->outs[o].spk, tx->outs[o].spklen, &pd, &pdn)) continue;
         SmCarrier car; memset(&car, 0, sizeof car);
-        sm_decode_payload(pd, pdn, (uint64_t)tx->outs[o].value, &car);
+        uint8_t mag[2]; wl_magic(mag);
+        sm_decode_payload(pd, pdn, (uint64_t)tx->outs[o].value, mag, &car);
         if (car.kind == SM_CAR_ACTION && car.act.op == v->expect_op) v->ok = 1;
     }
 }
@@ -486,8 +505,13 @@ static int net_send(int fd, const uint8_t magic[4], const char *cmd, const uint8
     strncpy((char *)hdr + 4, cmd, 12);
     hdr[16] = (uint8_t)len; hdr[17] = (uint8_t)(len >> 8); hdr[18] = (uint8_t)(len >> 16); hdr[19] = (uint8_t)(len >> 24);
     uint8_t ck[32]; idx_sha256d(payload ? payload : (const uint8_t *)"", len, ck); memcpy(hdr + 20, ck, 4);
+#ifdef MSG_NOSIGNAL
+    if (send(fd, hdr, 24, MSG_NOSIGNAL) != 24) return 0;
+    if (len && send(fd, payload, len, MSG_NOSIGNAL) != (ssize_t)len) return 0;
+#else
     if (write(fd, hdr, 24) != 24) return 0;
     if (len && write(fd, payload, len) != (ssize_t)len) return 0;
+#endif
     return 1;
 }
 static int read_n(int fd, uint8_t *buf, size_t n, int timeout_ms) {
@@ -504,9 +528,11 @@ static int net_recv(int fd, const uint8_t magic[4], char cmd_out[13], uint8_t **
     if (memcmp(hdr, magic, 4) != 0) return -1;
     memcpy(cmd_out, hdr + 4, 12); cmd_out[12] = 0;
     uint32_t l = (uint32_t)hdr[16] | (uint32_t)hdr[17] << 8 | (uint32_t)hdr[18] << 16 | (uint32_t)hdr[19] << 24;
-    if (l > 32 * 1024 * 1024) return -1;
+    if (l > 2u * 1024 * 1024) return -1;
     uint8_t *buf = malloc(l ? l : 1);
     if (l && !read_n(fd, buf, l, timeout_ms)) { free(buf); return 0; }
+    uint8_t ck[32]; idx_sha256d(l ? buf : (const uint8_t *)"", l, ck);
+    if (memcmp(hdr + 20, ck, 4) != 0) { free(buf); return -1; }
     *payload = buf; *len = l; return 1;
 }
 static int p2p_handshake(int fd, const uint8_t magic[4]) {
@@ -559,6 +585,9 @@ static int resolve_connect(const char *hostport, uint16_t dflt_port) {
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (fd < 0) continue;
+#ifdef SO_NOSIGPIPE
+        { int one = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one); }
+#endif
         int fl = fcntl(fd, F_GETFL, 0);
         fcntl(fd, F_SETFL, fl | O_NONBLOCK);
         int r = connect(fd, ai->ai_addr, ai->ai_addrlen);
@@ -801,7 +830,7 @@ static int cmd_selftest(void) {
     u[1].vout = 0; u[1].value = 3 * COIN_UNIT;
     int64_t fee = FEE_DEFAULT, change = 8 * COIN_UNIT - fee;
     WOut outs[2];
-    uint8_t c0[36] = { 0xFF, 0x50, 0x4E, SM_OP_COMMIT }; memset(c0 + 4, 0x5A, 32);
+    uint8_t c0[36]; memset(c0, 0, sizeof c0); wl_prefix(c0, SM_OP_COMMIT); memset(c0 + 4, 0x5A, 32);
     wout_carrier(&outs[0], c0, 36, 0);
     wout_p2pkh(&outs[1], w.h160, change);
     uint8_t tx[8192], txid[32];
@@ -820,7 +849,7 @@ static int cmd_selftest(void) {
     uint8_t pre80[80]; size_t pn = 0;
     memcpy(pre80 + pn, salt, 32); pn += 32; memcpy(pre80 + pn, nm, nl); pn += nl; memcpy(pre80 + pn, w.h160, 20); pn += 20;
     uint8_t cmt[32]; SHA256_CTX cc; sha256_init(&cc); sha256_update(&cc, pre80, pn); sha256_final(&cc, cmt);
-    uint8_t apay[80] = { 0xFF, 0x50, 0x4E, SM_OP_COMMIT }; memcpy(apay + 4, cmt, 32);
+    uint8_t apay[80]; memset(apay, 0, sizeof apay); wl_prefix(apay, SM_OP_COMMIT); memcpy(apay + 4, cmt, 32);
     wout_carrier(&outs[0], apay, 36, 0); wout_p2pkh(&outs[1], w.h160, change);
     txlen = build_signed_tx(&w, u, 1, outs, 2, tx, txid);
     EXPECT(txlen && verify_action(&w, tx, txlen, SM_OP_COMMIT), "COMMIT carrier decodes + attributes");
@@ -1103,7 +1132,7 @@ static int swl_do_commit(const Wallet *w, const SwlReq *req, SwlRes *res) {
         fclose(f);
     }
 
-    uint8_t payload[36] = { 0xFF, 0x50, 0x4E, SM_OP_COMMIT };
+    uint8_t payload[36]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_COMMIT);
     memcpy(payload + 4, commitment, 32);
     WOut outs[4];
     wout_carrier(&outs[0], payload, 36, 0);                  // commit burns nothing
@@ -1232,7 +1261,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
             return swl_fail(res, "'%s' is owned right now — a claim would burn the rent for nothing", req->name);
         if (expired)                             // pruned commit: fresh salt, start over
             return swl_do_commit(w, req, res);
-        uint8_t payload[4 + 32 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_CLAIM };
+        uint8_t payload[4 + 32 + SM_NAME_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_CLAIM);
         memcpy(payload + 4, salt, 32);
         memcpy(payload + 36, req->name, nlen);
         wout_carrier(&outs[0], payload, 36 + nlen, req->amount);   // rent rides the carrier
@@ -1243,7 +1272,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         if (req->amount < 1)
             return swl_fail(res, "rent must be at least 1 koinu");
         if (req->nnames == 0) {                                    // bare all-form
-            uint8_t payload[4] = { 0xFF, 0x50, 0x4E, SM_OP_RENEW };
+            uint8_t payload[4]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_RENEW);
             wout_carrier(&outs[0], payload, 4, req->amount);
             return swl_tail(w, req, res, outs, 1, req->amount, SM_OP_RENEW);
         }
@@ -1251,7 +1280,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         int nflags;                              // only the flagged names
         int64_t anchor;
         if (!bits_and_anchor(w, req, res, 0, swl_flags_budget_renew(), flags, &nflags, &anchor)) return 0;
-        uint8_t payload[4 + 5 + SM_FLAGS_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_RENEW };
+        uint8_t payload[4 + 5 + SM_FLAGS_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_RENEW);
         for (int i = 0; i < 5; i++) payload[4 + i] = (uint8_t)((uint64_t)anchor >> (8 * i));
         memcpy(payload + 9, flags, (size_t)nflags);
         wout_carrier(&outs[0], payload, 9 + (size_t)nflags, req->amount);
@@ -1260,7 +1289,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
 
     case SWL_TRANSFER: {
         if (req->nnames == 0) {                  // bare §3.6 all-form: EVERY unlocked name
-            uint8_t payload[24] = { 0xFF, 0x50, 0x4E, SM_OP_TRANSFER };
+            uint8_t payload[24]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_TRANSFER);
             memcpy(payload + 4, req->to160, 20);
             wout_carrier(&outs[0], payload, 24, 0);                // fee-only, gift
             return swl_tail(w, req, res, outs, 1, 0, SM_OP_TRANSFER);
@@ -1269,7 +1298,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         int nflags;                              // — only the flagged names move
         int64_t anchor;
         if (!bits_and_anchor(w, req, res, 1, swl_flags_budget_xfer(), flags, &nflags, &anchor)) return 0;
-        uint8_t payload[4 + 20 + 5 + SM_FLAGS_XFER_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_TRANSFER };
+        uint8_t payload[4 + 20 + 5 + SM_FLAGS_XFER_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_TRANSFER);
         memcpy(payload + 4, req->to160, 20);
         for (int i = 0; i < 5; i++) payload[24 + i] = (uint8_t)((uint64_t)anchor >> (8 * i));
         memcpy(payload + 29, flags, (size_t)nflags);
@@ -1301,7 +1330,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         int64_t mtp = db_tip_mtp(req->dbpath);
         if (mtp && mtp + eff + SM_REORG_BUFFER > r.lease_expiry)
             return swl_fail(res, "lease shorter than the window — renew first");
-        uint8_t payload[4 + 8 + 4 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_SELL };
+        uint8_t payload[4 + 8 + 4 + SM_NAME_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_SELL);
         for (int i = 0; i < 8; i++) payload[4 + i]  = (uint8_t)(req->price   >> (8 * i));
         for (int i = 0; i < 4; i++) payload[12 + i] = (uint8_t)(req->window_s >> (8 * i));
         memcpy(payload + 16, req->name, nlen);
@@ -1314,7 +1343,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         int nflags;
         int64_t anchor;
         if (!bits_and_anchor(w, req, res, 1, swl_flags_budget_renew(), flags, &nflags, &anchor)) return 0;
-        uint8_t payload[4 + 5 + SM_FLAGS_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_RELEASE };
+        uint8_t payload[4 + 5 + SM_FLAGS_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_RELEASE);
         for (int i = 0; i < 5; i++) payload[4 + i] = (uint8_t)((uint64_t)anchor >> (8 * i));
         memcpy(payload + 9, flags, (size_t)nflags);
         wout_carrier(&outs[0], payload, 9 + (size_t)nflags, 0);
@@ -1339,7 +1368,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         if (pay_leg < (uint64_t)DUST)                  // §5: sub-dust can't relay
             return swl_fail(res, "un-executable listing — its 0.5%% pay-leg is below "
                                  "the 0.01 dust floor; it unlists when the window closes");
-        uint8_t payload[4 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_RESERVE };
+        uint8_t payload[4 + SM_NAME_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_RESERVE);
         memcpy(payload + 4, req->name, nlen);
         wout_carrier(&outs[0], payload, 4 + nlen, (int64_t)burn_leg);  // burn-leg on the carrier
         wout_p2pkh(&outs[1], r.seller, (int64_t)pay_leg);              // pay-leg to the seller
@@ -1364,7 +1393,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         uint64_t remainder = r.price - r.burn_leg - r.pay_leg;   // legs as the fold recorded
         if (remainder < (uint64_t)DUST)                // §5: sub-dust can't relay
             return swl_fail(res, "un-executable — the settle remainder is below the 0.01 dust floor");
-        uint8_t payload[4 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_SETTLE };
+        uint8_t payload[4 + SM_NAME_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_SETTLE);
         memcpy(payload + 4, req->name, nlen);
         wout_carrier(&outs[0], payload, 4 + nlen, 0);
         wout_p2pkh(&outs[1], r.seller, (int64_t)remainder);
@@ -1386,7 +1415,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
             return swl_fail(res, "the offer window closed");
         if (r.price < (uint64_t)DUST)                  // §5: sub-dust can't relay
             return swl_fail(res, "un-executable offer — its price is below the 0.01 dust floor");
-        uint8_t payload[4 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_PAY };
+        uint8_t payload[4 + SM_NAME_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_PAY);
         memcpy(payload + 4, req->name, nlen);
         wout_carrier(&outs[0], payload, 4 + nlen, 0);
         wout_p2pkh(&outs[1], r.seller, (int64_t)r.price);          // full price
@@ -1413,7 +1442,7 @@ static int swl_dispatch(const Wallet *w, const SwlReq *req, SwlRes *res) {
         int64_t mtp = db_tip_mtp(req->dbpath);   // the fold wants window+buffer of lease
         if (mtp && mtp + SM_DIRECT_WINDOW + SM_REORG_BUFFER > r.lease_expiry)
             return swl_fail(res, "lease shorter than the offer window — renew first");
-        uint8_t payload[4 + 8 + 20 + SM_NAME_MAX] = { 0xFF, 0x50, 0x4E, SM_OP_SELL_TO };
+        uint8_t payload[4 + 8 + 20 + SM_NAME_MAX]; memset(payload, 0, sizeof payload); wl_prefix(payload, SM_OP_SELL_TO);
         for (int i = 0; i < 8; i++) payload[4 + i] = (uint8_t)(req->price >> (8 * i));
         memcpy(payload + 12, req->to160, 20);
         memcpy(payload + 32, req->name, nlen);

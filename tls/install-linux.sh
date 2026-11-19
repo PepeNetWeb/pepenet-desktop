@@ -1,0 +1,438 @@
+#!/bin/sh
+# install-linux.sh — the privileged step that makes `*.<tld>` HTTPS Just Work
+# in a browser on Linux. Same CLI as install.sh (which execs this on Linux):
+#
+#   sudo ./install.sh install   doge|pepe   [--dns-port 15353] [--proxy-port 8443]
+#   sudo ./install.sh uninstall doge|pepe
+#
+# Three things, for ONE TLD:
+#   1. trust the name-constrained root — nssdb as the real user (unprivileged
+#      `install-ca`), then the Debian/Ubuntu/Fedora system store as root so
+#      p11-kit / Firefox enterprise-roots / curl all see it;
+#   2. systemd-resolved split-DNS: route *.<tld> at dnsd on 127.0.0.1:<dns-port>
+#      WITHOUT replacing the box's global resolvers. A dummy iface (pn-<tld>),
+#      not lo — NetworkManager boxes have no systemd-networkd, and resolvectl
+#      on lo then dies with dbus-org.freedesktop.network1.service not found;
+#   3. nftables redirect 127.0.0.1:443 -> 127.0.0.1:<proxy-port> so a stock
+#      :443 client (curl without --proxy) lands on the unprivileged proxy.
+#      Best-effort: PAC (desktop) is the primary browser route; this is the
+#      analogue of macOS pf, and install still succeeds if nft is missing.
+#
+# This script wires the OS. It does not start dnsd or the proxy.
+set -eu
+
+ACTION="${1:-}"
+TLD="${2:-}"
+DNS_PORT=15353
+PROXY_PORT=8443
+LOOPBACK=127.0.0.1
+CERT=""
+
+shift 2 2>/dev/null || { echo "usage: sudo $0 {install|uninstall} <doge|pepe> [opts]" >&2; exit 2; }
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dns-port)   DNS_PORT="$2";   shift 2 ;;
+        --proxy-port) PROXY_PORT="$2"; shift 2 ;;
+        --cert)       CERT="$2";       shift 2 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+case "$TLD" in doge|pepe) ;; *)
+    echo "TLD must be 'doge' or 'pepe' (this box serves exactly one)" >&2; exit 2 ;;
+esac
+case "$ACTION" in install|uninstall) ;; *)
+    echo "action must be 'install' or 'uninstall'" >&2; exit 2 ;;
+esac
+
+if [ "$(id -u)" != "0" ]; then
+    echo "must run as root (sudo) — it writes the system CA store and resolved/nft" >&2
+    exit 1
+fi
+
+RUSER="${SUDO_USER:-${PKEXEC_UID:+$(id -un "$PKEXEC_UID")}}"
+RUSER="${RUSER:-$(id -un)}"
+RHOME="$(getent passwd "$RUSER" | cut -d: -f6)"
+RHOME="${RHOME:-$(eval echo "~$RUSER")}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+BIN="$HERE/pepenet-tls"
+
+UNIT="pepenet-web-$TLD.service"
+UNIT_PATH="/etc/systemd/system/$UNIT"
+NFT_DIR="/etc/pepenet"
+NFT_FILE="$NFT_DIR/nft-$TLD.nft"
+IFACE="pn-$TLD"
+SPLIT_FILE="$NFT_DIR/split-dns-$TLD.sh"
+NM_UNMANAGED="/etc/NetworkManager/conf.d/pepenet-$TLD-unmanaged.conf"
+CA_DEB="/usr/local/share/ca-certificates/pepenet-$TLD.crt"
+CA_FED="/etc/pki/ca-trust/source/anchors/pepenet-$TLD.crt"
+
+if [ -z "$CERT" ]; then
+    CERT="$RHOME/.pepenet/pepenet-root-$TLD.crt"
+fi
+
+# ── system CA store ───────────────────────────────────────────────────────────
+ca_cert_ok() {
+    [ -n "$CERT" ] && [ -f "$CERT" ] && [ ! -L "$CERT" ] || return 1
+    command -v openssl >/dev/null 2>&1 || return 0
+    openssl x509 -in "$CERT" -noout -ext basicConstraints 2>/dev/null | grep -q 'CA:TRUE' || {
+        echo "refusing --cert: not CA:TRUE" >&2; return 1
+    }
+    openssl x509 -in "$CERT" -noout -ext nameConstraints 2>/dev/null | grep -qi "$TLD" || {
+        echo "refusing --cert: NameConstraints do not permit .$TLD" >&2; return 1
+    }
+    return 0
+}
+
+ca_install() {
+    ca_cert_ok || { echo "no usable root cert at $CERT (run: $BIN --tld $TLD gen-ca)" >&2; return 1; }
+    if [ -d /usr/local/share/ca-certificates ] && command -v update-ca-certificates >/dev/null 2>&1; then
+        cp "$CERT" "$CA_DEB"
+        chmod 644 "$CA_DEB"
+        update-ca-certificates >/dev/null
+        echo "   system store: $CA_DEB"
+    elif command -v update-ca-trust >/dev/null 2>&1; then
+        mkdir -p /etc/pki/ca-trust/source/anchors
+        cp "$CERT" "$CA_FED"
+        chmod 644 "$CA_FED"
+        update-ca-trust extract
+        echo "   system store: $CA_FED"
+    else
+        echo "   [WARN] no update-ca-certificates / update-ca-trust — system store skipped" >&2
+        return 0
+    fi
+}
+
+ca_uninstall() {
+    rm -f "$CA_DEB" "$CA_FED"
+    if command -v update-ca-certificates >/dev/null 2>&1; then
+        update-ca-certificates >/dev/null 2>&1 || true
+    elif command -v update-ca-trust >/dev/null 2>&1; then
+        update-ca-trust extract >/dev/null 2>&1 || true
+    fi
+}
+
+# ── systemd-resolved split-DNS on dummy pn-$TLD (routing-only ~$TLD) ──────────
+# Must NOT set DNS= in resolved.conf — that would make 127.0.0.1 a GLOBAL
+# resolver and break every name dnsd does not serve. Dummy + DefaultRoute=no
+# + Domains=~$TLD routes only *.$TLD there and leaves wlan/eth DHCP alone.
+# lo does not work: resolvectl falls through to systemd-networkd, which is
+# disabled on NetworkManager desktops (the user's 0.2.2 install).
+write_split_dns() {
+    mkdir -p "$NFT_DIR"
+    cat > "$SPLIT_FILE" <<EOF
+#!/bin/sh
+# generated by pepenet-tls install-linux.sh — .$TLD split-DNS on $IFACE
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+IFACE=$IFACE
+ADDR=169.254.7.53/32
+DNS=$LOOPBACK:$DNS_PORT
+DOMAIN=~$TLD
+NM_CONF=$NM_UNMANAGED
+case "\${1:-apply}" in
+stop)
+    resolvectl revert "\$IFACE" >/dev/null 2>&1 || true
+    resolvectl revert lo >/dev/null 2>&1 || true
+    ip link del "\$IFACE" >/dev/null 2>&1 || true
+    rm -f "\$NM_CONF"
+    command -v nmcli >/dev/null 2>&1 && nmcli general reload >/dev/null 2>&1 || true
+    ;;
+*)
+    if [ -d /etc/NetworkManager/conf.d ]; then
+        printf '[keyfile]\\nunmanaged-devices=interface-name:%s\\n' "\$IFACE" > "\$NM_CONF"
+        command -v nmcli >/dev/null 2>&1 && nmcli general reload >/dev/null 2>&1 || true
+    fi
+    if ! ip link show "\$IFACE" >/dev/null 2>&1; then
+        modprobe dummy >/dev/null 2>&1 || true
+        ip link add "\$IFACE" type dummy
+    fi
+    ip addr replace "\$ADDR" dev "\$IFACE"
+    ip link set "\$IFACE" up
+    resolvectl revert lo >/dev/null 2>&1 || true
+    resolvectl dns "\$IFACE" "\$DNS"
+    resolvectl domain "\$IFACE" "\$DOMAIN"
+    resolvectl default-route "\$IFACE" false >/dev/null 2>&1 || true
+    ;;
+esac
+EOF
+    chmod 755 "$SPLIT_FILE"
+}
+
+write_unit() {
+    mkdir -p /etc/systemd/system
+    cat > "$UNIT_PATH" <<EOF
+[Unit]
+Description=PepeNet .$TLD split-DNS + loopback :443 redirect
+After=systemd-resolved.service NetworkManager.service
+Wants=systemd-resolved.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$SPLIT_FILE
+ExecStart=-/usr/sbin/nft -f $NFT_FILE
+ExecStop=$SPLIT_FILE stop
+ExecStop=-/usr/sbin/nft delete table ip pepenet-$TLD
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+# nft is best-effort: a missing binary, a kernel without nat, or a policy
+# that forbids output-hook redirect must not fail the install. systemd wants
+# ExecStart=-/path (dash on the VALUE), not -ExecStart=.
+write_nft() {
+    mkdir -p "$NFT_DIR"
+    cat > "$NFT_FILE" <<EOF
+# pepenet-$TLD — locally-originated 127.0.0.1:443 → the unprivileged proxy.
+# Loaded after a best-effort delete so a reinstall is idempotent (flush
+# would fail the first time the table does not exist).
+table ip pepenet-$TLD {
+    chain output {
+        type nat hook output priority -100;
+        ip daddr $LOOPBACK tcp dport 443 redirect to :$PROXY_PORT
+    }
+}
+EOF
+}
+
+apply_runtime() {
+    if [ -x "$SPLIT_FILE" ]; then
+        "$SPLIT_FILE" || echo "   [WARN] split-DNS apply failed — PAC / dig @127.0.0.1 still work" >&2
+    elif command -v resolvectl >/dev/null 2>&1; then
+        echo "   [WARN] $SPLIT_FILE missing" >&2
+    else
+        echo "   [WARN] resolvectl missing — no split-DNS (PAC / explicit --resolve still work)" >&2
+    fi
+    if command -v nft >/dev/null 2>&1; then
+        nft delete table ip pepenet-$TLD >/dev/null 2>&1 || true
+        nft -f "$NFT_FILE" || echo "   [WARN] nft failed — :443 redirect off (PAC unaffected)" >&2
+    else
+        echo "   [WARN] nft missing — :443 redirect off" >&2
+    fi
+}
+
+# ── Firefox prefs (deb + snap). Snap Firefox ignores host p11-kit; we also
+# plant the PEM into the profile NSS db via install-ca. TRR/DoH would skip
+# pn-<tld> and NXDOMAIN .pepe at Cloudflare — exclude the TLD from TRR. ────
+FF_MARK="// pepenet-tls: trust OS roots (incl. the .$TLD root CA)"
+
+firefox_install() {
+    n=0
+    for pd in "$RHOME/.mozilla/firefox" \
+              "$RHOME/snap/firefox/common/.mozilla/firefox" \
+              "$RHOME/snap/firefox/current/.mozilla/firefox"; do
+        [ -d "$pd" ] || continue
+        for prof in "$pd"/*/; do
+            [ -d "$prof" ] || continue
+            [ -f "${prof}prefs.js" ] || [ -f "${prof}cert9.db" ] || continue
+            uj="${prof}user.js"
+            grep -qs 'pepenet-tls: trust OS roots' "$uj" 2>/dev/null || printf '%s\n' "$FF_MARK" >> "$uj"
+            grep -qs 'security.enterprise_roots.enabled' "$uj" 2>/dev/null || \
+                printf 'user_pref("security.enterprise_roots.enabled", true);\n' >> "$uj"
+            grep -qs 'network.trr.excluded-domains' "$uj" 2>/dev/null || \
+                printf 'user_pref("network.trr.excluded-domains", "%s");\n' "$TLD" >> "$uj"
+            # doh-rollout.mode=2 (TRR first) is set by the Snap addon and
+            # NXDOMAINs .pepe at Cloudflare; 0 stops it from forcing TRR.
+            grep -qs 'doh-rollout.mode' "$uj" 2>/dev/null || \
+                printf 'user_pref("doh-rollout.mode", 0);\n' >> "$uj"
+            chown "$RUSER:" "$uj" 2>/dev/null || true
+            n=$((n + 1))
+        done
+    done
+    firefox_policies
+    if [ "$n" -eq 0 ]; then
+        echo "   (no Firefox profiles yet — policies.json still planted for Snap)"
+    else
+        echo "   Firefox: $n profile(s) + /etc/firefox/policies — fully quit Firefox to apply"
+    fi
+}
+
+# Snap Firefox can read /etc/firefox (firefox:etc-firefox) but NOT the host
+# p11-kit store. Copy the PEM in there and exclude .$TLD from DoH.
+firefox_policies() {
+    [ -n "$CERT" ] && [ -f "$CERT" ] || return 0
+    mkdir -p /etc/firefox/policies/certificates
+    cp "$CERT" "/etc/firefox/policies/certificates/pepenet-$TLD.crt"
+    chmod 644 "/etc/firefox/policies/certificates/pepenet-$TLD.crt"
+    POL=/etc/firefox/policies/policies.json
+    CERT_POL="/etc/firefox/policies/certificates/pepenet-$TLD.crt"
+    if command -v python3 >/dev/null 2>&1; then
+        CERT_POL="$CERT_POL" TLD="$TLD" POL="$POL" python3 - <<'PY'
+import json, os
+path, cert, tld = os.environ["POL"], os.environ["CERT_POL"], os.environ["TLD"]
+data = {"policies": {}}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        data = {"policies": {}}
+p = data.setdefault("policies", {})
+certs = p.setdefault("Certificates", {})
+certs["ImportEnterpriseRoots"] = True
+inst = certs.setdefault("Install", [])
+if cert not in inst:
+    inst.append(cert)
+doh = p.setdefault("DNSOverHTTPS", {})
+if "Enabled" not in doh:
+    doh["Enabled"] = True
+ex = doh.setdefault("ExcludedDomains", [])
+if tld not in ex:
+    ex.append(tld)
+doh["Fallback"] = True
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PY
+    else
+        cat > "$POL" <<EOF
+{
+  "policies": {
+    "Certificates": {
+      "ImportEnterpriseRoots": true,
+      "Install": ["$CERT_POL"]
+    },
+    "DNSOverHTTPS": {
+      "Enabled": true,
+      "ExcludedDomains": ["$TLD"],
+      "Fallback": true
+    }
+  }
+}
+EOF
+    fi
+    echo "   Snap Firefox policies: $POL"
+}
+
+firefox_uninstall() {
+    for pd in "$RHOME/.mozilla/firefox" \
+              "$RHOME/snap/firefox/common/.mozilla/firefox" \
+              "$RHOME/snap/firefox/current/.mozilla/firefox"; do
+        [ -d "$pd" ] || continue
+        for prof in "$pd"/*/; do
+            uj="${prof}user.js"
+            [ -f "$uj" ] || continue
+            sed -i '/pepenet-tls: trust OS roots/d' "$uj" 2>/dev/null || true
+            sed -i '/security.enterprise_roots.enabled/d' "$uj" 2>/dev/null || true
+            sed -i "/network.trr.excluded-domains/d" "$uj" 2>/dev/null || true
+            sed -i '/doh-rollout.mode/d' "$uj" 2>/dev/null || true
+        done
+    done
+    rm -f "/etc/firefox/policies/certificates/pepenet-$TLD.crt"
+    POL=/etc/firefox/policies/policies.json
+    if [ -f "$POL" ] && command -v python3 >/dev/null 2>&1; then
+        CERT_POL="/etc/firefox/policies/certificates/pepenet-$TLD.crt" TLD="$TLD" POL="$POL" python3 - <<'PY'
+import json, os
+path, cert, tld = os.environ["POL"], os.environ["CERT_POL"], os.environ["TLD"]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    raise SystemExit
+p = data.get("policies") or {}
+certs = p.get("Certificates") or {}
+inst = [x for x in certs.get("Install") or [] if x != cert]
+if inst:
+    certs["Install"] = inst
+    p["Certificates"] = certs
+else:
+    p.pop("Certificates", None)
+doh = p.get("DNSOverHTTPS") or {}
+ex = [x for x in doh.get("ExcludedDomains") or [] if x != tld]
+if ex:
+    doh["ExcludedDomains"] = ex
+    p["DNSOverHTTPS"] = doh
+elif doh:
+    doh.pop("ExcludedDomains", None)
+    if list(doh.keys()) <= {"Enabled", "Fallback"}:
+        p.pop("DNSOverHTTPS", None)
+data["policies"] = p
+if p:
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+else:
+    os.remove(path)
+PY
+    fi
+}
+
+ensure_certutil() {
+    command -v certutil >/dev/null 2>&1 && return 0
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "   installing libnss3-tools (certutil) so Snap Chromium/Firefox can trust the root"
+        DEBIAN_FRONTEND=noninteractive apt-get install -y libnss3-tools >/dev/null || true
+    fi
+    command -v certutil >/dev/null 2>&1
+}
+
+do_install() {
+    echo "==> 1/4 trusting the name-constrained .$TLD root (nssdb as $RUSER, incl. Snap)"
+    ensure_certutil || echo "   [WARN] certutil still missing; Snap Chromium will show CERT_AUTHORITY_INVALID" >&2
+    if [ -x "$BIN" ]; then
+        sudo -u "$RUSER" env HOME="$RHOME" "$BIN" --tld "$TLD" install-ca || \
+            echo "   [WARN] nssdb install failed; system store still planted" >&2
+    else
+        echo "   (no $BIN — skipping nssdb; gen-ca + install-ca later if you want Chromium's user db)"
+    fi
+    echo "==> 2/4 system CA store"
+    ca_install
+
+    echo "==> 3/4 split-DNS + :443 redirect (resolved on $IFACE, nftables)"
+    write_nft
+    write_split_dns
+    write_unit
+    apply_runtime
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload
+        systemctl enable --now "$UNIT" >/dev/null 2>&1 || \
+            echo "   [WARN] systemctl enable $UNIT failed — runtime apply above still ran" >&2
+    fi
+
+    echo "==> 4/4 Firefox trust (enterprise_roots → p11-kit system store)"
+    firefox_install
+
+    cat <<EOF
+
+installed for .$TLD. To go live:
+  1. run dnsd with:   --tls-redirect $LOOPBACK --suffix $TLD --dns-port $DNS_PORT
+  2. run the proxy:   $BIN --tld $TLD serve --db <indexer.db> --store <carrier.db> --port $PROXY_PORT
+  3. verify:          curl -v https://<name>.$TLD/    (expect the padlock, no CA warning)
+  4. Firefox/Chromium: fully quit + reopen (roots are read at startup)
+
+manual verification:
+  - resolvectl query <name>.$TLD                       # split-DNS → $LOOPBACK ($IFACE)
+  - nft list table ip pepenet-$TLD                     # :443 redirect (if nft worked)
+  - awk -F: '/pepenet-$TLD/{print}' /etc/ca-certificates.conf  # Debian system store
+EOF
+}
+
+do_uninstall() {
+    echo "==> removing .$TLD root (nssdb as $RUSER + system store)"
+    [ -x "$BIN" ] && sudo -u "$RUSER" env HOME="$RHOME" "$BIN" --tld "$TLD" uninstall-ca || true
+    ca_uninstall
+
+    echo "==> reverting Firefox enterprise-roots pref"
+    firefox_uninstall
+
+    echo "==> removing split-DNS + nft"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable --now "$UNIT" >/dev/null 2>&1 || true
+    fi
+    [ -x "$SPLIT_FILE" ] && "$SPLIT_FILE" stop || true
+    rm -f "$UNIT_PATH" "$NFT_FILE" "$SPLIT_FILE" "$NM_UNMANAGED"
+    rmdir "$NFT_DIR" 2>/dev/null || true
+    command -v resolvectl >/dev/null 2>&1 && resolvectl revert lo 2>/dev/null || true
+    command -v nft >/dev/null 2>&1 && nft delete table ip pepenet-$TLD 2>/dev/null || true
+    command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload || true
+    echo "done."
+}
+
+case "$ACTION" in
+    install)   do_install ;;
+    uninstall) do_uninstall ;;
+esac

@@ -42,6 +42,18 @@
  * and wallet.c's own comments promise, and the code does not deliver it. They
  * are left asserting the CORRECT behaviour on purpose.
  */
+#include <stdint.h>
+#include <string.h>
+/* wallet.c reads the carrier prefix via idx_coin_onchain_magic (indexer
+ * sync.c, not linked here: it drags the whole serve plane). Test-local copy
+ * of the two mainnet rows from sync.c's COINS[] ('P''N' / 'D''N'). */
+int idx_coin_onchain_magic(const char *name, uint8_t out[2]) {
+    if (!name || !out) return 0;
+    if (!strcmp(name, "pep"))  { out[0] = 0x50; out[1] = 0x4E; return 1; }
+    if (!strcmp(name, "doge")) { out[0] = 0x44; out[1] = 0x4E; return 1; }
+    return 0;
+}
+
 #include "wallet.c"          /* select_coins / parse_amt / UtxoSet are static */
 #include "fee.h"             /* the quote's floor must agree with the wallet's */
 

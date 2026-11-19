@@ -78,6 +78,48 @@ set(SECP256K1_ENABLE_MODULE_MUSIG      OFF CACHE BOOL "" FORCE)
 set(SECP256K1_ENABLE_MODULE_ELLSWIFT   OFF CACHE BOOL "" FORCE)
 add_subdirectory(${SECP256K1_DIR} secp256k1 EXCLUDE_FROM_ALL)
 
+# ── idx-08/09: optional pinned upstream sqlite amalgamation ──────────────────
+# -DSQLITE_AMALGAMATION=<dir with sqlite3.c + sqlite3.h> compiles that upstream
+# amalgamation statically into greatdane-node (same switches as the indexer
+# Makefile). SQLITE_PIN_VERSION / SQLITE_PIN_SHA256 (sha256 of sqlite3.c), when
+# set, must match or configure stops. Unset = the platform default below
+# (unchanged). Nothing is downloaded; see indexer/docs/SQLITE-PIN.md.
+set(SQLITE_AMALGAMATION "" CACHE PATH "dir with an upstream sqlite3.c/sqlite3.h (empty = platform sqlite)")
+set(SQLITE_PIN_VERSION  "" CACHE STRING "required SQLITE_VERSION of the amalgamation (optional)")
+set(SQLITE_PIN_SHA256   "" CACHE STRING "required sha256 of sqlite3.c (optional)")
+if(SQLITE_AMALGAMATION)
+    if(NOT EXISTS ${SQLITE_AMALGAMATION}/sqlite3.c OR NOT EXISTS ${SQLITE_AMALGAMATION}/sqlite3.h)
+        message(FATAL_ERROR "SQLITE_AMALGAMATION=${SQLITE_AMALGAMATION}: sqlite3.c/sqlite3.h not found")
+    endif()
+    file(STRINGS ${SQLITE_AMALGAMATION}/sqlite3.h _sqlv REGEX "^#define SQLITE_VERSION +\"")
+    string(REGEX REPLACE ".*\"([^\"]*)\".*" "\\1" _sqlv "${_sqlv}")
+    if(SQLITE_PIN_VERSION AND NOT _sqlv STREQUAL SQLITE_PIN_VERSION)
+        message(FATAL_ERROR "sqlite pin: amalgamation is ${_sqlv}, expected ${SQLITE_PIN_VERSION}")
+    endif()
+    file(SHA256 ${SQLITE_AMALGAMATION}/sqlite3.c _sqlh)
+    if(SQLITE_PIN_SHA256 AND NOT _sqlh STREQUAL SQLITE_PIN_SHA256)
+        message(FATAL_ERROR "sqlite pin: sqlite3.c sha256 ${_sqlh}, expected ${SQLITE_PIN_SHA256}")
+    endif()
+    message(STATUS "sqlite: pinned amalgamation ${_sqlv} (sqlite3.c sha256 ${_sqlh})")
+    add_library(sqlite3_pinned STATIC ${SQLITE_AMALGAMATION}/sqlite3.c)
+    target_compile_definitions(sqlite3_pinned PRIVATE
+        SQLITE_THREADSAFE=1 SQLITE_DEFAULT_PAGE_SIZE=4096 SQLITE_OMIT_LOAD_EXTENSION
+        SQLITE_DQS=0 SQLITE_DEFAULT_MEMSTATUS=0)
+    if(NOT MSVC)
+        target_compile_options(sqlite3_pinned PRIVATE -w)
+    endif()
+    target_include_directories(sqlite3_pinned BEFORE PUBLIC ${SQLITE_AMALGAMATION})
+    if(UNIX)
+        find_package(Threads REQUIRED)
+        target_link_libraries(sqlite3_pinned PUBLIC Threads::Threads m)
+    endif()
+    set(GD_NODE_SQLITE sqlite3_pinned)
+elseif(WIN32 OR APPLE)
+    set(GD_NODE_SQLITE sqlite3)
+else()
+    set(GD_NODE_SQLITE SQLite::SQLite3)
+endif()
+
 # ── Platform seams ────────────────────────────────────────────────────────────
 # Windows: the POSIX-over-Winsock compat headers (sys/socket.h, poll.h, …) let
 # the submodule sources compile byte-identical; OpenSSL/sqlite3 come static
@@ -111,7 +153,7 @@ else()
     # Linux: distro OpenSSL 3 (DANE is in libssl). Static is an AppImage
     # follow-on; a tarball links the distro .so and ships with a .desktop.
     find_package(OpenSSL 3 REQUIRED)
-    find_package(SQLite3 REQUIRED)
+    find_package(SQLite3 REQUIRED)   # pepenet-desktop (GUI) always links the platform sqlite
     find_package(OpenGL REQUIRED)
     find_package(Threads REQUIRED)
     find_package(PkgConfig REQUIRED)
@@ -144,7 +186,7 @@ set(DESKTOP_IDX_SRCS
     ${IDX_DIR}/attrib.c ${IDX_DIR}/adapter.c ${IDX_DIR}/oracle_feed.c
     ${IDX_DIR}/db.c ${IDX_DIR}/chain.c ${IDX_DIR}/base58.c
     ${IDX_DIR}/sync.c ${IDX_DIR}/pow.c ${IDX_DIR}/serve_store.c
-    ${IDX_DIR}/txcheck.c ${IDX_DIR}/mempool.c ${SHIM_SRC}
+    ${IDX_DIR}/txcheck.c ${IDX_DIR}/mempool.c ${IDX_DIR}/net_policy.c ${IDX_DIR}/snapshot.c ${IDX_DIR}/dbcheck.c ${SHIM_SRC}
 )
 
 # ── The pepenet-mesh facade (sp_*) ────────────────────────────────────────────
@@ -229,7 +271,12 @@ target_include_directories(tls_embed PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # definition reaches only the pepenet-desktop target and proxy.c, compiled into
 # this static lib, falls back to "dev" — so a shipped build's error pages would
 # claim a version the app is not.
-target_compile_definitions(tls_embed PRIVATE PEPENET_VERSION="${PEPENET_VERSION}")
+# 8: PAC is already 8. Two DANE acceptors (:8443 + pf :8445) share g_live.
+# SMAppService login items are jetsam-capped at 32 threads; 64 detaches plus
+# PAC/UI/serve walked the process into an exit-0 vanish.
+target_compile_definitions(tls_embed PRIVATE
+    PEPENET_VERSION="${PEPENET_VERSION}"
+    PROXY_CONN_MAX=8)
 target_link_libraries(tls_embed PUBLIC
     dns_embed
     ${TLS_SSL_LIBS}
@@ -241,6 +288,8 @@ endif()
 # ── The app ───────────────────────────────────────────────────────────────────
 set(DESKTOP_COMMON_SRCS
     src/main.c
+    src/appinst.c
+    src/applog.c
     src/engine.c
     src/model.c
     src/model_demo.c
@@ -315,6 +364,7 @@ if(WIN32)
     # Headless padlock service: same dns/tls/chain engines, no Sokol/UI.
     add_executable(pepenet-web
         src/web_svc.c
+        src/appinst.c
         src/engine.c
         src/fee.c
         src/zonekey.c
@@ -429,6 +479,45 @@ elseif(UNIX)
             ${CMAKE_SOURCE_DIR}/packaging/pepenet.desktop
             "$<TARGET_FILE_DIR:pepenet-desktop>/resources/pepenet.desktop"
         COMMENT "Staging resources (fonts + install helper + tray icon)")
+endif()
+
+# Headless dual-chain node. One coin per process (--only). No Sokol, no X11,
+# no dbus, no libsecret. The three platform branches all build it.
+set(GD_NODE_SRCS
+    src/gd_node.c
+    src/appinst.c
+    src/engine.c
+    src/fee.c
+    ${DESKTOP_ENGINE_SRCS}
+    ${DESKTOP_IDX_SRCS}
+)
+if(WIN32)
+    list(APPEND GD_NODE_SRCS src/compat/win_compat.c)
+endif()
+add_executable(greatdane-node ${GD_NODE_SRCS})
+target_compile_definitions(greatdane-node PRIVATE
+    PEPENET_VERSION="${PEPENET_VERSION}")
+target_include_directories(greatdane-node PRIVATE
+    ${IDX_DIR}
+    ${SECP256K1_DIR}/include
+    ${SM_ENGINE_DIR}
+)
+if(WIN32)
+    target_include_directories(greatdane-node BEFORE PRIVATE ${COMPAT_WIN_DIR})
+    target_link_options(greatdane-node PRIVATE -static)
+    target_link_libraries(greatdane-node PRIVATE
+        ${GD_NODE_SQLITE} secp256k1 dns_embed tls_embed
+        ws2_32 crypt32 bcrypt advapi32
+    )
+elseif(APPLE)
+    target_link_libraries(greatdane-node PRIVATE
+        ${GD_NODE_SQLITE} secp256k1 dns_embed tls_embed
+    )
+else()
+    target_link_libraries(greatdane-node PRIVATE
+        ${GD_NODE_SQLITE} secp256k1 dns_embed tls_embed
+        ${CMAKE_DL_LIBS} Threads::Threads m
+    )
 endif()
 
 # dev runs load fonts straight from the tree; the staged copy above serves

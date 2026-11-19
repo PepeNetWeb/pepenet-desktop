@@ -30,12 +30,12 @@ MESHOBJ := applogic_mesh_crypto.o applogic_mesh_state.o applogic_mesh_wire.o \
 
 # ── the consensus wire bytes (src/ops.c queue + the §2 action codec) ─────────
 t_ops: t_ops.c $(SRC)/ops.c $(SRC)/ui/strings.c $(SM)/decode.c $(SM)/state.c
-	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LDFLAGS) $(LDLIBS) $(EXTRA_LIBS)
 
 # ── the zone hot key + its delegation cert cache ─────────────────────────────
 t_zonekey: t_zonekey.c $(SRC)/zonekey.c applogic_mesh.o
 	$(CC) $(CFLAGS) $(INC_MESH) -o $@ t_zonekey.c $(SRC)/zonekey.c $(MESHOBJ) \
-	      $(LDFLAGS) $(SECPLIB) -lsqlite3
+	      $(LDFLAGS) $(SECPLIB) $(SQLITE_LIBS) $(EXTRA_LIBS)
 
 # ── the Discover directory scan ──────────────────────────────────────────────
 # (dirscan.c is #included by the test — a prerequisite, not a compile input —
@@ -43,14 +43,14 @@ t_zonekey: t_zonekey.c $(SRC)/zonekey.c applogic_mesh.o
 t_dirscan: t_dirscan.c $(SRC)/dirscan.c $(DNSSRC)/dns_state.c $(DNSSRC)/zone.c $(DNSSRC)/dns_wire.c applogic_mesh.o
 	$(CC) $(CFLAGS) $(INC_MESH) -o $@ t_dirscan.c \
 	      $(DNSSRC)/dns_state.c $(DNSSRC)/zone.c $(DNSSRC)/dns_wire.c $(MESHOBJ) \
-	      $(LDFLAGS) $(SECPLIB) -lsqlite3
+	      $(LDFLAGS) $(SECPLIB) $(SQLITE_LIBS) $(EXTRA_LIBS)
 
 # ── the Receive card's QR encoder + the Discover favicon decoder ─────────────
 # (favicon.c is #included by the test — its decoders are static, and its one
 #  network call is stubbed; -I$(TLSSRC) is only for fetch.h's prototype)
 t_qr: t_qr.c $(SRC)/qr.c $(SRC)/favicon.c
-	$(CC) $(CFLAGS) $(INC) -I$(TLSSRC) -o $@ t_qr.c $(SRC)/qr.c $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INC) -I$(TLSSRC) -o $@ t_qr.c $(SRC)/qr.c $(LDFLAGS) $(EXTRA_LIBS)
 
 # ── the DNS record-editor validators (mirrored helpers + the REAL rdata parser)
 t_dnsrec: t_dnsrec.c $(DNSSRC)/zone.c $(DNSSRC)/dns_wire.c
-	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INC) -o $@ $^ $(LDFLAGS) $(EXTRA_LIBS)

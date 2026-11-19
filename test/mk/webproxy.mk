@@ -30,8 +30,14 @@ JITTER += j_webproxy
 
 WPINC  := -I$(TLSSRC) $(OPENSSL_INC)
 
-t_webproxy: t_webproxy.c $(SRC)/webproxy.c
-	$(CC) $(CFLAGS) $(INC) $(WPINC) -o $@ $^ $(LDFLAGS) -lpthread
+# t_webproxy: webproxy.c is compiled on its own with -Dconnect=t_wp_connect so
+# its loopback dials reach the suite's EPHEMERAL listeners (t_webproxy.c
+# g_portmap). The source is unmodified; only that one call is redirected.
+t_webproxy_wp.o: $(SRC)/webproxy.c
+	$(CC) $(CFLAGS) $(INC) $(WPINC) -Dconnect=t_wp_connect -c -o $@ $<
 
-j_webproxy: j_webproxy.c $(SRC)/webproxy.c
-	$(CC) $(CFLAGS) $(INC) $(WPINC) -o $@ $^ $(LDFLAGS) -lpthread
+t_webproxy: t_webproxy.c t_webproxy_wp.o $(SRC)/appinst.c
+	$(CC) $(CFLAGS) $(INC) $(WPINC) -o $@ $^ $(LDFLAGS) -lpthread $(EXTRA_LIBS)
+
+j_webproxy: j_webproxy.c $(SRC)/webproxy.c $(SRC)/appinst.c
+	$(CC) $(CFLAGS) $(INC) $(WPINC) -o $@ $^ $(LDFLAGS) -lpthread $(EXTRA_LIBS)

@@ -1,0 +1,21 @@
+# Zone for the flat pepenet name `pepenet` (served as *.pepenet.pepe).
+# Format:  <label>  <TYPE>  <ttl>  <rdata...>
+#   label "@" is the apex; anything else is a subdomain within this zone.
+# All hierarchy lives here under the single on-chain owner of `pepenet`.
+serial 1
+
+@      A      3600   192.0.2.1
+@      AAAA   3600   2001:db8::1
+@      TXT    3600   "pepenet dns — hello from the namespace"
+www    A      3600   192.0.2.2
+www    AAAA   3600   2001:db8::2
+api    CNAME  3600   www.pepenet.pepe
+@      MX     3600   10 mail.pepenet.pepe
+mail   A      3600   192.0.2.3
+
+# DANE / authenticated-key directory (the actually-novel capability):
+# TLSA  <usage> <selector> <matching-type>  <cert-association-data-hex>
+# 3 1 1 = DANE-EE, SPKI, SHA-256  → "this key IS the authority, no CA".
+_443._tcp  TLSA  3600  3 1 1 0000000000000000000000000000000000000000000000000000000000000000
+# SSHFP <algo> <fptype> <fingerprint-hex>   (algo 4 = ed25519, fptype 2 = sha256)
+@          SSHFP 3600  4 2 1111111111111111111111111111111111111111111111111111111111111111

@@ -54,7 +54,8 @@ const char *platform_data_dir(char *out, size_t cap) {
         if (!home || !home[0]) home = ".";
         snprintf(out, cap, "%s/.%s", home, APP_DATA_DIR);
     }
-    mkdir(out, 0755);                       // idempotent; ignore EEXIST
+    mkdir(out, 0700);                       // wallet + hot CA key live here
+    chmod(out, 0700);
     return out;
 }
 
@@ -187,8 +188,11 @@ int platform_loginitem_set(int on) {
     if (@available(macOS 13.0, *)) {
         NSError *err = nil;
         if (on) {
-            // an already-registered agent errors — the status check below is
-            // the truth either way
+            // already enabled: do NOT register again. SMAppService register
+            // on a live agent can RunAtLoad a second --background copy that
+            // loses db_lock, exit(0), and leave launchd job=exited so a later
+            // crash is not restarted.
+            if (loginitem_svc().status == SMAppServiceStatusEnabled) return 1;
             [loginitem_svc() registerAndReturnError:&err];
             int ok = loginitem_svc().status == SMAppServiceStatusEnabled;
             if (!ok && err)
